@@ -149,6 +149,12 @@ impl ObjectServer {
         self.objects.read().unwrap().contains_key(path)
     }
 
+    /// Returns the registered interface named `interface` at `path`, if any.
+    pub fn get_interface(&self, path: &str, interface: &str) -> Option<Arc<dyn Interface>> {
+        let objects = self.objects.read().unwrap();
+        objects.get(path)?.get(interface).cloned()
+    }
+
     /// Dispatch an incoming method call. `interface` is `None` when the
     /// caller omitted the INTERFACE header field (allowed by the spec —
     /// the method name is then resolved against whichever interface at
