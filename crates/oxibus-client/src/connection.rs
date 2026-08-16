@@ -173,6 +173,12 @@ impl Connection {
         if let Some(d) = destination {
             builder = builder.destination(d.to_string());
         }
+        let mut args = args;
+        let mut fds = Vec::new();
+        extract_fds(&mut args, &mut fds);
+        for fd in fds {
+            builder = builder.fd(fd);
+        }
         let msg = builder.args(args).build(serial);
 
         let (tx, rx) = oneshot::channel();
@@ -372,12 +378,54 @@ async fn handle_incoming(
                 return;
             }
             let reply = match result {
-                Ok(values) => reply_to(&msg, None).args(values),
+                Ok(mut values) => {
+                    let mut builder = reply_to(&msg, None);
+                    let mut fds = Vec::new();
+                    extract_fds(&mut values, &mut fds);
+                    for fd in fds {
+                        builder = builder.fd(fd);
+                    }
+                    builder.args(values)
+                }
                 Err(e) => reply_to(&msg, Some(&e.name)).arg(Value::string(e.message)),
             };
             let out = reply.build(next_reply_serial());
             let _ = writer.write_message(&out).await;
         }
+    }
+}
+
+fn extract_fds(values: &mut [Value], fds: &mut Vec<std::os::fd::RawFd>) {
+    fn walk(val: &mut Value, fds: &mut Vec<std::os::fd::RawFd>) {
+        match val {
+            Value::UnixFd(fd_ref) => {
+                let raw_fd = *fd_ref as std::os::fd::RawFd;
+                let idx = fds.len() as u32;
+                fds.push(raw_fd);
+                *fd_ref = idx;
+            }
+            Value::Array(arr) => {
+                for el in &mut arr.elements {
+                    walk(el, fds);
+                }
+            }
+            Value::Struct(fields) => {
+                for f in fields {
+                    walk(f, fds);
+                }
+            }
+            Value::DictEntry(k, v) => {
+                walk(k, fds);
+                walk(v, fds);
+            }
+            Value::Variant(inner) => {
+                walk(inner, fds);
+            }
+            _ => {}
+        }
+    }
+    for val in values {
+        walk(val, fds);
     }
 }
 
