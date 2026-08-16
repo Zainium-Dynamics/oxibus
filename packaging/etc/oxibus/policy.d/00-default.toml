@@ -1,0 +1,27 @@
+# OxiBus default policy — installed to /etc/oxibus/policy.d/00-default.toml
+#
+# Rules are evaluated in this file's order, then user-context files, then
+# group-context files, then any `context = "mandatory"` rules last (which
+# nothing below can override). Within that ordering, last matching rule
+# wins for each of own/send/receive — same model as classic D-Bus
+# <policy> blocks, just TOML instead of XML.
+#
+# Drop additional *.toml files into this directory (sorted by filename) to
+# extend or restrict this baseline — e.g. a `10-<service>.toml` per
+# hardened system service.
+
+[[rule]]
+context = "default"
+allow_own = ["*"]
+allow_send = ["*"]
+allow_receive = ["*"]
+
+# Only the bus's own service account may own org.freedesktop.DBus itself.
+[[rule]]
+context = "mandatory"
+deny_own = ["org.freedesktop.DBus"]
+
+[[rule]]
+context = "user"
+user = "messagebus"
+allow_own = ["org.freedesktop.DBus"]

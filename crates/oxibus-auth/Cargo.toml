@@ -1,0 +1,24 @@
+[package]
+name = "oxibus-auth"
+description = "SASL authentication (EXTERNAL, ANONYMOUS, DBUS_COOKIE_SHA1)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxibus-core = { workspace = true }
+oxibus-transport = { path = "../oxibus-transport" }
+thiserror = { workspace = true }
+rand = { workspace = true }
+sha1 = { workspace = true }
+hex = { workspace = true }
+libc = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+name = "oxibus_auth"
+path = "src/lib.rs"

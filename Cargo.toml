@@ -1,0 +1,90 @@
+# =============================================================================
+# OxiBus monorepo — single workspace (Zainium Dynamics)
+# =============================================================================
+# Native, from-scratch Rust replacement for D-Bus (dbus-1.16.2).
+# Wire-protocol compatible with the D-Bus Specification 0.41, so every
+# existing libdbus-1.so / GDBus binary already in syshub keeps working
+# unmodified against oxibus-daemon.
+#
+# Layout:
+#   oxibus-config/    shared TOML config (paths, prefix — mirrors elevate.toml)
+#   oxibus-core/      wire protocol: types, signatures, marshaling, messages
+#   oxibus-transport/ unix socket transport, peer credentials, fd passing
+#   oxibus-auth/      SASL: EXTERNAL, ANONYMOUS, DBUS_COOKIE_SHA1
+#   oxibus-client/    connection, proxies, object server (the new libdbus)
+#   oxibus-daemon/    the bus itself: registry, driver, policy, activation
+#   oxibus-tools/     oxibus-send / oxibus-monitor / oxibus-launch / ...
+#
+# One config file: oxibus.toml (paths, features — same shape as elevate.toml)
+#
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 Zainium Dynamics
+# Author: alizain <alizain@zainiumdynamics.tech>
+# Website: https://zainiumdynamics.tech
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/oxibus-config",
+    "crates/oxibus-core",
+    "crates/oxibus-transport",
+    "crates/oxibus-auth",
+    "crates/oxibus-client",
+    "crates/oxibus-daemon",
+    "crates/oxibus-tools",
+]
+default-members = [
+    "crates/oxibus-config",
+    "crates/oxibus-core",
+    "crates/oxibus-transport",
+    "crates/oxibus-auth",
+    "crates/oxibus-client",
+    "crates/oxibus-daemon",
+    "crates/oxibus-tools",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "GPL-3.0-only"
+authors = ["alizain <alizain@zainiumdynamics.tech>"]
+homepage = "https://zainiumdynamics.tech"
+repository = "https://github.com/alizain/oxibus"
+categories = ["os::linux-apis", "network-programming", "asynchronous"]
+keywords = ["dbus", "ipc", "zainium", "message-bus", "async"]
+
+[workspace.dependencies]
+oxibus-config    = { path = "crates/oxibus-config", version = "0.1.0" }
+oxibus-core      = { path = "crates/oxibus-core", version = "0.1.0" }
+oxibus-transport = { path = "crates/oxibus-transport", version = "0.1.0" }
+oxibus-auth      = { path = "crates/oxibus-auth", version = "0.1.0" }
+oxibus-client    = { path = "crates/oxibus-client", version = "0.1.0" }
+
+serde       = { version = "1", features = ["derive"] }
+toml        = "0.8"
+thiserror   = "2"
+anyhow      = "1"
+tokio       = { version = "1", features = ["full"] }
+futures     = "0.3"
+tracing     = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+once_cell   = "1"
+libc        = "0.2"
+nix         = { version = "0.29", features = ["user", "fs", "process", "signal", "socket", "uio"] }
+rand        = "0.8"
+sha1        = "0.10"
+clap        = { version = "4", features = ["derive"] }
+bytes       = "1"
+hex         = "0.4"
+
+[profile.release]
+lto           = true
+codegen-units = 1
+opt-level     = "s"
+strip         = "symbols"
+panic         = "unwind"
+
+[profile.release-fast]
+inherits  = "release"
+opt-level = 3

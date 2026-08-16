@@ -1,0 +1,50 @@
+# OxiBus — attach source archive to a published GitHub Release
+# Zainium Dynamics · https://zainiumdynamics.tech
+#
+# v* tag first; this job :
+#   oxibus-<tag>.tar.zst
+#   oxibus-<tag>.sha256
+
+name: Release assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    name: Attach source archive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Install zstd
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd > /dev/null
+
+      - name: Build archive and checksum
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name }}"
+          PACKAGE="oxibus-${TAG}"
+          mkdir -p dist
+          git archive --format=tar --prefix="${PACKAGE}/" "${TAG}" \
+            | zstd -19 -T0 -o "dist/${PACKAGE}.tar.zst"
+          (cd dist && sha256sum "${PACKAGE}.tar.zst" > "${PACKAGE}.sha256")
+          echo "PACKAGE=${PACKAGE}" >> "$GITHUB_ENV"
+          ls -lh "dist/${PACKAGE}.tar.zst"
+          cat "dist/${PACKAGE}.sha256"
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "dist/${PACKAGE}.tar.zst" \
+            "dist/${PACKAGE}.sha256" \
+            --clobber

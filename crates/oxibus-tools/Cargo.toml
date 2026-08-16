@@ -1,0 +1,51 @@
+[package]
+name = "oxibus-tools"
+description = "OxiBus CLI tools: oxibus-send, oxibus-monitor, oxibus-launch, ..."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "oxibus-send"
+path = "src/bin/oxibus-send.rs"
+
+[[bin]]
+name = "oxibus-monitor"
+path = "src/bin/oxibus-monitor.rs"
+
+[[bin]]
+name = "oxibus-launch"
+path = "src/bin/oxibus-launch.rs"
+
+[[bin]]
+name = "oxibus-uuidgen"
+path = "src/bin/oxibus-uuidgen.rs"
+
+[[bin]]
+name = "oxibus-cleanup-sockets"
+path = "src/bin/oxibus-cleanup-sockets.rs"
+
+[[bin]]
+name = "oxibus-run-session"
+path = "src/bin/oxibus-run-session.rs"
+
+[[bin]]
+name = "oxibus-update-activation-environment"
+path = "src/bin/oxibus-update-activation-environment.rs"
+
+[dependencies]
+oxibus-core = { workspace = true }
+oxibus-client = { path = "../oxibus-client" }
+oxibus-config = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+oxibus-auth = { workspace = true }

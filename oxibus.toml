@@ -1,0 +1,103 @@
+# OxiBus — single monorepo configuration (TOML only, no JSON)
+#
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 Zainium Dynamics
+# Author: alizain <alizain@zainiumdynamics.tech>
+# Website: https://zainiumdynamics.tech
+#
+# Zainium paths: NO /usr — only /bin, /sbin, /lib, /etc, /engine.
+# This file is the DEV-TREE default (paths are relative-looking here so the
+# daemon also runs straight out of a checkout). At install time
+# scripts/install.sh rewrites nothing — it *reads* [paths] to know where to
+# copy things, exactly the way elevate's installer reads elevate.toml.
+#
+# CRITICAL PATH RULE (same as build-zainium-dbus.sh):
+#   prefix  = runtime path ON THE BOOTED OS        → /overlayer/syshub
+#   DESTROOT = host tree where files land (staging) → .../zairoot/overlayer/syshub
+#   Never bake /run/media/... USB paths into a release binary's defaults.
+
+[project]
+name    = "oxibus"
+version = "0.1.0"
+author  = "alizain"
+email   = "alizain@zainiumdynamics.tech"
+website = "https://zainiumdynamics.tech"
+license = "GPL-3.0-only"
+
+[build]
+rust_version = "1.97"
+lto          = true
+strip        = true
+
+[features]
+std                 = true
+tokio_runtime       = true
+message_bus         = true    # build/install oxibus-daemon
+tools               = true    # build/install oxibus-tools
+traditional_activation = true # share/oxibus/services/*.toml on-demand spawn
+stats               = true    # org.freedesktop.DBus.Debug.Stats
+cookie_sha1         = true    # legacy DBUS_COOKIE_SHA1 SASL mechanism
+unix_fd_passing     = true
+# Deliberately NOT implemented — Zainium's own dbus build disables all of
+# these too (see build-zainium-dbus.sh): no systemd, no SELinux, no
+# AppArmor, no libaudit, no launchd, no X11 autolaunch, no Windows.
+systemd             = false
+selinux             = false
+apparmor            = true
+libaudit            = false
+launchd             = false
+x11_autolaunch      = false
+
+[paths]
+prefix           = "/overlayer/syshub"
+bindir           = "/bin"
+sbindir          = "/sbin"
+libdir           = "/lib"
+includedir       = "/include"
+conf_dir         = "/etc/oxibus"
+policy_dir       = "/etc/oxibus/policy.d"
+services_dir     = "/etc/oxibus/services"
+vendor_services_dir = "/lib/oxibus/services"
+share_dir        = "/share/oxibus"
+runtime_dir      = "/run"
+system_socket    = "/run/oxibus/system_bus_socket"
+system_pid_file  = "/run/oxibus/pid"
+session_socket_dir = "/tmp"
+state_dir        = "/var/lib/oxibus"
+machine_id_file  = "/var/lib/oxibus/machine-id"
+launch_helper    = "/libexec/oxibus-daemon-launch-helper"
+# Legacy D-Bus compatibility socket alias (real dbus-daemon's default path).
+# oxibus-daemon listens on BOTH system_socket and legacy_system_socket so
+# unmodified libdbus-1.so binaries with the old address baked in still work.
+legacy_system_socket = "/run/dbus/system_bus_socket"
+
+[bus.system]
+user             = "messagebus"
+listen           = "unix:path=/run/oxibus/system_bus_socket"
+pidfile          = "/run/oxibus/pid"
+auth_mechanisms  = ["EXTERNAL", "DBUS_COOKIE_SHA1", "ANONYMOUS"]
+allow_anonymous  = false
+
+[bus.session]
+listen              = "unix:tmpdir=/tmp"
+auth_mechanisms      = ["EXTERNAL", "DBUS_COOKIE_SHA1"]
+allow_anonymous      = false
+
+[limits]
+max_incoming_bytes         = 1_000_000_000
+max_outgoing_bytes         = 1_000_000_000
+max_message_size           = 134_217_728   # 128 MiB, matches libdbus default
+max_message_unix_fds       = 1024
+max_completed_connections  = 100_000
+max_incomplete_connections = 64
+max_connections_per_user   = 512
+max_pending_service_starts = 512
+max_names_per_connection   = 50_000
+max_match_rules_per_connection = 50_000
+activation_timeout_ms      = 25_000
+auth_timeout_ms            = 30_000
+
+[logging]
+level  = "info"
+ident  = "oxibus-daemon"
+target = "stderr"

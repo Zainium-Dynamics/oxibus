@@ -1,0 +1,479 @@
+//! A live D-Bus connection: SASL handshake, method-call/reply matching,
+//! signal fan-out, and dispatch of incoming calls into an [`ObjectServer`].
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex as StdMutex};
+
+use tokio::sync::{broadcast, oneshot};
+use tokio::task::JoinHandle;
+
+use oxibus_auth::{ClientAction, ClientAuth, Mechanism};
+use oxibus_core::header::MessageType;
+use oxibus_core::message::reply_to;
+use oxibus_core::{well_known, Address, Message, MessageBuilder, ObjectPath, SerialGenerator, Value};
+use oxibus_transport::{Transport, Writer};
+
+use crate::error::{ClientError, ClientResult};
+use crate::object_server::ObjectServer;
+
+/// SASL mechanisms tried by [`Connection::connect`], in order: `EXTERNAL`
+/// (kernel-verified UID) first, falling back to `DBUS_COOKIE_SHA1`.
+pub fn default_mechanisms() -> Vec<Mechanism> {
+    vec![Mechanism::External, Mechanism::DbusCookieSha1]
+}
+
+struct Inner {
+    writer: Writer,
+    pending: Arc<StdMutex<HashMap<u32, oneshot::Sender<Message>>>>,
+    signal_tx: broadcast::Sender<Message>,
+    /// Every incoming message, regardless of type — used by monitor-style
+    /// tools (`oxibus-monitor`) after calling `BecomeMonitor`, where the
+    /// bus fans out raw traffic (method calls/returns/errors too, not just
+    /// signals) to this connection.
+    raw_tx: broadcast::Sender<Message>,
+    serials: SerialGenerator,
+    unique_name: Arc<StdMutex<Option<String>>>,
+    object_server: Arc<ObjectServer>,
+    _reader_task: JoinHandle<()>,
+}
+
+/// A live, authenticated D-Bus connection. Cheap to clone (an `Arc` handle
+/// around shared state); the reader task and any pending calls stay alive
+/// as long as one clone does.
+#[derive(Clone)]
+pub struct Connection {
+    inner: Arc<Inner>,
+}
+
+impl Connection {
+    /// Connects to `address` and performs the SASL handshake using
+    /// [`default_mechanisms`], with Unix-fd passing requested and an empty
+    /// [`ObjectServer`] to receive incoming calls. Errors if the transport
+    /// can't be reached or the handshake fails.
+    pub async fn connect(address: &Address) -> ClientResult<Self> {
+        Self::connect_with(address, default_mechanisms(), true, Arc::new(ObjectServer::new())).await
+    }
+
+    /// Connects to `address` and authenticates, trying `mechanisms` in
+    /// order until one succeeds (or every one is rejected, which is an
+    /// [`ClientError::AuthFailed`]). Incoming method calls are dispatched
+    /// into `object_server`. Spawns a background task that reads and
+    /// demultiplexes messages for the lifetime of the connection.
+    pub async fn connect_with(
+        address: &Address,
+        mechanisms: Vec<Mechanism>,
+        want_unix_fd: bool,
+        object_server: Arc<ObjectServer>,
+    ) -> ClientResult<Self> {
+        let stream = oxibus_transport::connect(address).await?;
+        let mut transport = Transport::new(stream)?;
+        handshake(&mut transport, mechanisms, want_unix_fd).await?;
+
+        let writer = transport.writer();
+        let pending: Arc<StdMutex<HashMap<u32, oneshot::Sender<Message>>>> =
+            Arc::new(StdMutex::new(HashMap::new()));
+        let (signal_tx, _) = broadcast::channel(4096);
+        let (raw_tx, _) = broadcast::channel(4096);
+        let unique_name: Arc<StdMutex<Option<String>>> = Arc::new(StdMutex::new(None));
+
+        let task_pending = pending.clone();
+        let task_signal_tx = signal_tx.clone();
+        let task_raw_tx = raw_tx.clone();
+        let task_object_server = object_server.clone();
+        let task_writer = writer.clone();
+        let task_unique_name = unique_name.clone();
+
+        let reader_task = tokio::spawn(async move {
+            loop {
+                match transport.read_message().await {
+                    Ok(msg) => {
+                        let _ = task_raw_tx.send(msg.clone());
+                        handle_incoming(
+                            msg,
+                            &task_pending,
+                            &task_signal_tx,
+                            &task_object_server,
+                            &task_writer,
+                            &task_unique_name,
+                        )
+                        .await;
+                    }
+                    Err(_) => break,
+                }
+            }
+            // Connection dropped: fail every still-pending call rather than
+            // leaving callers hung forever waiting on a oneshot that will
+            // now never fire.
+            task_pending.lock().unwrap().clear();
+        });
+
+        Ok(Connection {
+            inner: Arc::new(Inner {
+                writer,
+                pending,
+                signal_tx,
+                raw_tx,
+                serials: SerialGenerator::new(),
+                unique_name,
+                object_server,
+                _reader_task: reader_task,
+            }),
+        })
+    }
+
+    /// The [`ObjectServer`] that incoming method calls on this connection
+    /// are dispatched into.
+    pub fn object_server(&self) -> &Arc<ObjectServer> {
+        &self.inner.object_server
+    }
+
+    /// The unique connection name assigned by the bus, once [`bus_hello`]
+    /// has completed. `None` before then, or on a peer-to-peer connection
+    /// with no bus daemon involved.
+    ///
+    /// [`bus_hello`]: Connection::bus_hello
+    pub fn unique_name(&self) -> Option<String> {
+        self.inner.unique_name.lock().unwrap().clone()
+    }
+
+    /// Subscribes to signal messages received on this connection. Each
+    /// call returns an independent receiver; signals sent before
+    /// subscribing are not delivered, and a receiver that falls too far
+    /// behind will observe a `Lagged` error.
+    pub fn subscribe_signals(&self) -> broadcast::Receiver<Message> {
+        self.inner.signal_tx.subscribe()
+    }
+
+    /// Every incoming message regardless of type. Only useful after
+    /// becoming a monitor (`Monitoring.BecomeMonitor`), which is what
+    /// makes the bus fan out non-signal traffic to this connection at all.
+    pub fn subscribe_all_messages(&self) -> broadcast::Receiver<Message> {
+        self.inner.raw_tx.subscribe()
+    }
+
+    /// Sends a method call and awaits the matching reply. Returns the
+    /// reply body on `MethodReturn`, or [`ClientError::CallError`] if the
+    /// peer replied with an `Error` message. Fails with
+    /// [`ClientError::Io`] if the message can't be written, or
+    /// [`ClientError::Closed`] if the connection is dropped (its reader
+    /// task exits) before a reply arrives.
+    pub async fn call_method(
+        &self,
+        destination: Option<&str>,
+        path: ObjectPath,
+        interface: Option<&str>,
+        member: &str,
+        args: Vec<Value>,
+    ) -> ClientResult<Vec<Value>> {
+        let serial = self.inner.serials.next();
+        let mut builder = MessageBuilder::method_call(path, member.to_string());
+        if let Some(i) = interface {
+            builder = builder.interface(i.to_string());
+        }
+        if let Some(d) = destination {
+            builder = builder.destination(d.to_string());
+        }
+        let msg = builder.args(args).build(serial);
+
+        let (tx, rx) = oneshot::channel();
+        self.inner.pending.lock().unwrap().insert(serial, tx);
+
+        if let Err(e) = self.inner.writer.write_message(&msg).await {
+            self.inner.pending.lock().unwrap().remove(&serial);
+            return Err(ClientError::Io(e));
+        }
+
+        let reply = rx.await.map_err(|_| ClientError::Closed)?;
+        match reply.message_type() {
+            MessageType::MethodReturn => Ok(reply.body),
+            MessageType::Error => Err(ClientError::CallError {
+                name: reply.header.error_name().unwrap_or("").to_string(),
+                message: reply
+                    .body
+                    .first()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            _ => Err(ClientError::Protocol("unexpected reply message type".into())),
+        }
+    }
+
+    /// Broadcasts a signal message; there is no reply to wait for. Fails
+    /// with [`ClientError::Io`] if the message can't be written.
+    pub async fn emit_signal(
+        &self,
+        path: ObjectPath,
+        interface: &str,
+        member: &str,
+        args: Vec<Value>,
+    ) -> ClientResult<()> {
+        let serial = self.inner.serials.next();
+        let msg = MessageBuilder::signal(path, interface.to_string(), member.to_string())
+            .args(args)
+            .build(serial);
+        self.inner.writer.write_message(&msg).await?;
+        Ok(())
+    }
+
+    /// Sends a pre-built message with the `NO_REPLY_EXPECTED` flag set,
+    /// without registering a pending-reply slot. Fails with
+    /// [`ClientError::Io`] if the message can't be written.
+    pub async fn send_no_reply(&self, msg_builder: MessageBuilder) -> ClientResult<()> {
+        let serial = self.inner.serials.next();
+        let msg = msg_builder.no_reply_expected().build(serial);
+        self.inner.writer.write_message(&msg).await?;
+        Ok(())
+    }
+
+    /// `org.freedesktop.DBus.Hello` — must be the first call on a
+    /// message-bus connection. Stores and returns the assigned unique name.
+    pub async fn bus_hello(&self) -> ClientResult<String> {
+        let reply = self
+            .call_method(
+                Some(well_known::BUS_NAME),
+                ObjectPath::new(well_known::BUS_PATH).unwrap(),
+                Some(well_known::BUS_INTERFACE),
+                "Hello",
+                vec![],
+            )
+            .await?;
+        let name = reply
+            .first()
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| ClientError::Protocol("Hello did not return a name".into()))?;
+        *self.inner.unique_name.lock().unwrap() = Some(name.clone());
+        Ok(name)
+    }
+
+    /// `org.freedesktop.DBus.RequestName` — asks the bus to assign `name`
+    /// to this connection, subject to `flags` (allow-replacement,
+    /// replace-existing, do-not-queue). Returns the `RequestName` result
+    /// code (owner/in-queue/exists/already-owner); see the D-Bus spec for
+    /// the exact values.
+    pub async fn request_name(&self, name: &str, flags: u32) -> ClientResult<u32> {
+        let reply = self
+            .call_method(
+                Some(well_known::BUS_NAME),
+                ObjectPath::new(well_known::BUS_PATH).unwrap(),
+                Some(well_known::BUS_INTERFACE),
+                "RequestName",
+                vec![Value::string(name), Value::UInt32(flags)],
+            )
+            .await?;
+        reply
+            .first()
+            .and_then(|v| v.as_u32())
+            .ok_or_else(|| ClientError::Protocol("RequestName returned no result".into()))
+    }
+
+    /// `org.freedesktop.DBus.AddMatch` — registers a match rule so the bus
+    /// starts routing matching signals (and, for eavesdrop rules, other
+    /// traffic) to this connection. Matching messages then arrive via
+    /// [`subscribe_signals`](Connection::subscribe_signals) or
+    /// [`subscribe_all_messages`](Connection::subscribe_all_messages).
+    pub async fn add_match(&self, rule: &str) -> ClientResult<()> {
+        self.call_method(
+            Some(well_known::BUS_NAME),
+            ObjectPath::new(well_known::BUS_PATH).unwrap(),
+            Some(well_known::BUS_INTERFACE),
+            "AddMatch",
+            vec![Value::string(rule)],
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+async fn handshake(
+    transport: &mut Transport,
+    mechanisms: Vec<Mechanism>,
+    want_unix_fd: bool,
+) -> ClientResult<()> {
+    transport.send_initial_nul().await?;
+
+    let mut auth = ClientAuth::new(mechanisms, want_unix_fd);
+    let mut line = auth.start();
+    loop {
+        transport.write_line(&line).await?;
+        let resp = transport.read_line().await?;
+        match auth.feed_line(&resp) {
+            ClientAction::Authenticated => break,
+            ClientAction::Send(l) => line = l,
+            ClientAction::MechanismRejected { .. } => match auth.try_next_mechanism() {
+                Some(next) => line = next,
+                None => {
+                    return Err(ClientError::AuthFailed(
+                        "server rejected every configured SASL mechanism".into(),
+                    ))
+                }
+            },
+            ClientAction::ProtocolError(e) => return Err(ClientError::AuthFailed(e)),
+        }
+    }
+
+    let (lines, expect_reply) = auth.finish_lines();
+    for l in &lines {
+        transport.write_line(l).await?;
+    }
+    if expect_reply {
+        transport.read_line().await?; // discard AGREE_UNIX_FD
+    }
+    Ok(())
+}
+
+async fn handle_incoming(
+    msg: Message,
+    pending: &StdMutex<HashMap<u32, oneshot::Sender<Message>>>,
+    signal_tx: &broadcast::Sender<Message>,
+    object_server: &Arc<ObjectServer>,
+    writer: &Writer,
+    unique_name: &StdMutex<Option<String>>,
+) {
+    match msg.message_type() {
+        MessageType::MethodReturn | MessageType::Error => {
+            if let Some(reply_serial) = msg.reply_serial() {
+                if let Some(tx) = pending.lock().unwrap().remove(&reply_serial) {
+                    let _ = tx.send(msg);
+                }
+            }
+        }
+        MessageType::Signal => {
+            let _ = signal_tx.send(msg);
+        }
+        MessageType::MethodCall => {
+            // In monitor mode (`Monitoring.BecomeMonitor`) the bus fans out
+            // traffic addressed to OTHER connections too; only actually
+            // dispatch-and-reply for calls genuinely addressed to us. A
+            // message with no DESTINATION at all means a direct peer-to-peer
+            // connection (no bus involved) — always ours in that case.
+            let is_for_us = match msg.destination() {
+                None => true,
+                Some(dest) => unique_name.lock().unwrap().as_deref() == Some(dest),
+            };
+            if !is_for_us {
+                return;
+            }
+
+            let no_reply = msg.no_reply_expected();
+            let path = msg.path().map(|p| p.as_str().to_string());
+            let interface = msg.interface().map(str::to_string);
+            let member = msg.member().map(str::to_string);
+
+            let Some(path) = path else { return };
+            let Some(member) = member else { return };
+
+            let result = object_server
+                .dispatch(&path, interface.as_deref(), &member, &msg.body)
+                .await;
+
+            if no_reply {
+                return;
+            }
+            let reply = match result {
+                Ok(values) => reply_to(&msg, None).args(values),
+                Err(e) => reply_to(&msg, Some(&e.name)).arg(Value::string(e.message)),
+            };
+            let out = reply.build(next_reply_serial());
+            let _ = writer.write_message(&out).await;
+        }
+    }
+}
+
+fn next_reply_serial() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(1);
+    loop {
+        let v = COUNTER.fetch_add(1, Ordering::Relaxed);
+        if v != 0 {
+            return v;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object_server::{BoxFuture, Interface, MethodError, MethodResult};
+
+    struct Echo;
+    impl Interface for Echo {
+        fn name(&self) -> &str {
+            "com.example.Echo"
+        }
+        fn introspection_xml(&self) -> String {
+            "<interface name=\"com.example.Echo\"><method name=\"Ping\"/></interface>".into()
+        }
+        fn call<'a>(&'a self, member: &'a str, _args: &'a [Value]) -> BoxFuture<'a, MethodResult> {
+            Box::pin(async move {
+                if member == "Ping" {
+                    Ok(vec![Value::string("pong")])
+                } else {
+                    Err(MethodError::unknown_method(member, self.name()))
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn peer_to_peer_call_and_reply() {
+        let dir = std::env::temp_dir().join(format!("oxibus-client-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("p2p.sock");
+        let addr = Address::UnixPath(sock.display().to_string());
+
+        let bound = oxibus_transport::bind(&addr).await.unwrap();
+        let server_task = tokio::spawn(async move {
+            let (stream, _peer) = bound.listener.accept().await.unwrap();
+            let object_server = Arc::new(ObjectServer::new());
+            object_server.register(&ObjectPath::new("/echo").unwrap(), Arc::new(Echo));
+
+            let mut transport = Transport::new(stream).unwrap();
+            // Minimal server-side EXTERNAL auth for this direct test.
+            transport.read_initial_nul().await.unwrap();
+            loop {
+                let line = transport.read_line().await.unwrap();
+                if let Some(rest) = line.strip_prefix("AUTH EXTERNAL ") {
+                    let _ = rest;
+                    transport.write_line("OK 0000").await.unwrap();
+                    break;
+                }
+            }
+            let mut line = transport.read_line().await.unwrap();
+            if line == "NEGOTIATE_UNIX_FD" {
+                transport.write_line("AGREE_UNIX_FD").await.unwrap();
+                line = transport.read_line().await.unwrap();
+            }
+            assert_eq!(line, "BEGIN");
+
+            let writer = transport.writer();
+            loop {
+                let msg = match transport.read_message().await {
+                    Ok(m) => m,
+                    Err(_) => break,
+                };
+                handle_incoming(
+                    msg,
+                    &StdMutex::new(HashMap::new()),
+                    &broadcast::channel(1).0,
+                    &object_server,
+                    &writer,
+                    &StdMutex::new(None),
+                )
+                .await;
+            }
+        });
+
+        let client = Connection::connect(&addr).await.unwrap();
+        let reply = client
+            .call_method(None, ObjectPath::new("/echo").unwrap(), None, "Ping", vec![])
+            .await
+            .unwrap();
+        assert_eq!(reply, vec![Value::string("pong")]);
+
+        drop(client);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), server_task).await;
+        std::fs::remove_file(&sock).ok();
+    }
+}

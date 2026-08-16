@@ -1,0 +1,11 @@
+# Cargo build output (root and any nested crate)
+target/
+
+# Separate workspace — not part of oxibus
+quantra-system/
+
+.gemini/
+.claude/
+.aider*
+.antigravity*
+*.log
