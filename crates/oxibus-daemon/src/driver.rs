@@ -180,6 +180,28 @@ fn handle_request_name(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, args: &[Va
         ));
     }
 
+    let bustype = match bus.kind {
+        crate::bus::BusKind::System => "system",
+        crate::bus::BusKind::Session => "session",
+    };
+    if !crate::apparmor::check_permission(
+        crate::apparmor::AA_DBUS_BIND,
+        caller.security_label.as_deref(),
+        None,
+        bustype,
+        Some(&name),
+        None,
+        None,
+        None,
+        caller.credentials.uid,
+    ) {
+        bus.stats.record_denial();
+        return err(DriverError::new(
+            errors::ACCESS_DENIED,
+            format!("AppArmor mediation denied owning the name \"{name}\""),
+        ));
+    }
+
     let max_names = bus.config.limits.max_names_per_connection as usize;
     if bus.registry.names_held_by(&caller.unique_name) >= max_names {
         return err(DriverError::new(

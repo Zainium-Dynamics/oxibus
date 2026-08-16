@@ -70,11 +70,19 @@ pub async fn handle_connection(bus: Arc<Bus>, stream: UnixStream) {
         }
     }
 
+    let security_label = oxibus_transport::credentials::peer_security_label(transport.raw_fd())
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .or_else(|| {
+            oxibus_transport::credentials::security_label(transport.credentials().pid)
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+        });
+
     let unique_name = bus.registry.allocate_unique_name();
     let entry = Arc::new(ConnectionEntry {
         unique_name: unique_name.clone(),
         writer: transport.writer(),
         credentials: transport.credentials(),
+        security_label,
         match_rules: RwLock::new(Vec::new()),
         is_monitor: AtomicBool::new(false),
         is_registered: AtomicBool::new(false),

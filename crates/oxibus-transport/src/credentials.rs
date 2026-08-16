@@ -51,11 +51,36 @@ pub fn peer_credentials(fd: RawFd) -> io::Result<PeerCredentials> {
     })
 }
 
+/// Read `SO_PEERSEC` off a connected unix-domain socket fd.
+pub fn peer_security_label(fd: RawFd) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 1024];
+    let mut len = buf.len() as libc::socklen_t;
+    // SAFETY: fd is a valid socket, getsockopt is standard call
+    let rc = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERSEC,
+            buf.as_mut_ptr() as *mut _ as *mut libc::c_void,
+            &mut len,
+        )
+    };
+    if rc == 0 {
+        buf.truncate(len as usize);
+        if let Some(pos) = buf.iter().position(|&x| x == 0) {
+            buf.truncate(pos);
+        }
+        if !buf.is_empty() {
+            return Some(buf);
+        }
+    }
+    None
+}
+
 /// Look up a process' Linux Security Module label (used by the EXTERNAL
 /// mechanism to carry `DBUS_CREDENTIAL_LINUX_SECURITY_LABEL`; matches
 /// `_dbus_read_local_process_label`). Best-effort: returns `None` if the
-/// LSM proc file isn't present/readable (no SELinux/AppArmor in this
-/// build, matching `oxibus.toml`'s `selinux=false, apparmor=false`).
+/// LSM proc file isn't present/readable.
 pub fn security_label(pid: i32) -> Option<Vec<u8>> {
     std::fs::read(format!("/proc/{pid}/attr/current")).ok()
 }

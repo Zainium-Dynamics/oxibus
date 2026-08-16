@@ -47,6 +47,8 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    oxibus_daemon::audit::init();
+
     let config = match &args.config {
         Some(path) => GlobalConfig::load_path(path)?,
         None => GlobalConfig::load_default(),
@@ -226,6 +228,7 @@ fn spawn_signal_handlers(bus: Arc<Bus>, socket_paths: Vec<PathBuf>, kind: BusKin
             _ = sigterm.recv() => tracing::info!("SIGTERM received — shutting down"),
             _ = sigint.recv() => tracing::info!("SIGINT received — shutting down"),
         }
+        oxibus_daemon::audit::shutdown();
         for path in &socket_paths {
             let _ = std::fs::remove_file(path);
         }

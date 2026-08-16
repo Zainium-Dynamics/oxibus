@@ -19,8 +19,8 @@ path = "src/bin/oxibus-daemon-launch-helper.rs"
 
 [dependencies]
 oxibus-core = { workspace = true }
-oxibus-transport = { path = "../oxibus-transport" }
-oxibus-auth = { path = "../oxibus-auth" }
+oxibus-transport = { workspace = true }
+oxibus-auth = { workspace = true }
 oxibus-config = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }

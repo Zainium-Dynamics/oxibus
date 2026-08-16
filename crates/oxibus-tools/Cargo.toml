@@ -39,7 +39,7 @@ path = "src/bin/oxibus-update-activation-environment.rs"
 
 [dependencies]
 oxibus-core = { workspace = true }
-oxibus-client = { path = "../oxibus-client" }
+oxibus-client = { workspace = true }
 oxibus-config = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

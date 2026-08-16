@@ -30,6 +30,10 @@ pub struct MatchRule {
     /// match the message body's corresponding string argument. Index range
     /// 0..=63 per the spec.
     pub args: Vec<(usize, String)>,
+    /// `(argN index, expected path value)` pairs for path prefix/subpath matching.
+    pub arg_paths: Vec<(usize, String)>,
+    /// Expected namespace for the 0th argument (arg0namespace).
+    pub arg0namespace: Option<String>,
     /// Whether this rule opts the connection into eavesdropping (currently
     /// parsed but not separately enforced beyond ordinary match delivery).
     pub eavesdrop: bool,
@@ -66,15 +70,27 @@ pub fn parse_match_rule(s: &str) -> Result<MatchRule, String> {
             "path_namespace" => rule.path_namespace = Some(value),
             "destination" => rule.destination = Some(value),
             "eavesdrop" => rule.eavesdrop = value == "true",
+            "arg0namespace" => rule.arg0namespace = Some(value),
             other if other.starts_with("arg") => {
-                let idx_str = other.trim_start_matches("arg");
-                let idx: usize = idx_str
-                    .parse()
-                    .map_err(|_| format!("invalid match rule key '{other}'"))?;
-                if idx > 63 {
-                    return Err("arg index must be 0..63".into());
+                if other.ends_with("path") {
+                    let idx_str = other.trim_start_matches("arg").trim_end_matches("path");
+                    let idx: usize = idx_str
+                        .parse()
+                        .map_err(|_| format!("invalid match rule key '{other}'"))?;
+                    if idx > 63 {
+                        return Err("arg index must be 0..63".into());
+                    }
+                    rule.arg_paths.push((idx, value));
+                } else {
+                    let idx_str = other.trim_start_matches("arg");
+                    let idx: usize = idx_str
+                        .parse()
+                        .map_err(|_| format!("invalid match rule key '{other}'"))?;
+                    if idx > 63 {
+                        return Err("arg index must be 0..63".into());
+                    }
+                    rule.args.push((idx, value));
                 }
-                rule.args.push((idx, value));
             }
             other => return Err(format!("unknown match rule key '{other}'")),
         }
@@ -191,8 +207,28 @@ impl MatchRule {
                 return false;
             }
         }
+        for (idx, expected) in &self.arg_paths {
+            let Some(val) = value_as_str(msg, *idx) else {
+                return false;
+            };
+            if !is_path_parent_or_child(val, expected) {
+                return false;
+            }
+        }
+        if let Some(ns) = &self.arg0namespace {
+            let Some(val) = value_as_str(msg, 0) else {
+                return false;
+            };
+            if val != ns && !val.starts_with(&format!("{}.", ns)) {
+                return false;
+            }
+        }
         true
     }
+}
+
+fn is_path_parent_or_child(p1: &str, p2: &str) -> bool {
+    p1 == p2 || p1 == "/" || p2 == "/" || p1.starts_with(&format!("{}/", p2)) || p2.starts_with(&format!("{}/", p1))
 }
 
 fn value_as_str(msg: &Message, idx: usize) -> Option<&str> {
@@ -238,5 +274,20 @@ mod tests {
     #[test]
     fn rejects_unknown_key() {
         assert!(parse_match_rule("bogus='x'").is_err());
+    }
+
+    #[test]
+    fn parses_arg0namespace_and_arg_paths() {
+        let rule = parse_match_rule("arg0namespace='com.example',arg3path='/a/b'").unwrap();
+        assert_eq!(rule.arg0namespace.as_deref(), Some("com.example"));
+        assert_eq!(rule.arg_paths, vec![(3, "/a/b".to_string())]);
+    }
+
+    #[test]
+    fn matches_arg_path_hierarchy() {
+        assert!(is_path_parent_or_child("/a/b/c", "/a/b"));
+        assert!(is_path_parent_or_child("/a/b", "/a/b/c"));
+        assert!(is_path_parent_or_child("/a/b", "/"));
+        assert!(!is_path_parent_or_child("/a/b", "/a/bc"));
     }
 }

@@ -246,6 +246,7 @@ impl Policy {
         Ok(Self { rules })
     }
 
+    /// Returns true if this policy has no rules loaded.
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
@@ -305,6 +306,7 @@ impl Policy {
         verdict
     }
 
+    /// Checks whether the given identity is allowed to send the specified message.
     pub fn can_send(&self, identity: &Identity, msg: &Message, destination: Option<&str>) -> bool {
         if self.is_empty() {
             return true;
@@ -321,6 +323,7 @@ impl Policy {
         verdict
     }
 
+    /// Checks whether the given identity is allowed to receive the specified message.
     pub fn can_receive(&self, identity: &Identity, msg: &Message, sender: Option<&str>) -> bool {
         if self.is_empty() {
             return true;

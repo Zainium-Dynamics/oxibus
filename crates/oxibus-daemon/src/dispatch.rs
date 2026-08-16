@@ -75,6 +75,25 @@ async fn dispatch_signal(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: Mes
         return;
     }
 
+    let bustype = match bus.kind {
+        crate::BusKind::System => "system",
+        crate::BusKind::Session => "session",
+    };
+    if !crate::apparmor::check_permission(
+        crate::apparmor::AA_DBUS_SEND,
+        sender.security_label.as_deref(),
+        None,
+        bustype,
+        msg.destination(),
+        msg.path().map(|p| p.as_str()),
+        msg.interface(),
+        msg.member(),
+        sender.credentials.uid,
+    ) {
+        bus.stats.record_denial();
+        return;
+    }
+
     if let Some(dest) = msg.destination() {
         if let Some(owner) = bus.registry.get_name_owner(dest) {
             if let Some(conn) = bus.registry.get(&owner) {
@@ -113,6 +132,25 @@ async fn broadcast_signal(bus: &Arc<Bus>, msg: &Message, enforce_policy: bool) {
                 group_names: &identity.group_names,
             };
             if !bus.policy.read().unwrap().can_receive(&policy_identity, msg, msg.sender()) {
+                continue;
+            }
+
+            let bustype = match bus.kind {
+                crate::BusKind::System => "system",
+                crate::BusKind::Session => "session",
+            };
+            let sender_conn = msg.sender().and_then(|s| bus.registry.get(s));
+            if !crate::apparmor::check_permission(
+                crate::apparmor::AA_DBUS_RECEIVE,
+                conn.security_label.as_deref(),
+                sender_conn.as_ref().and_then(|c| c.security_label.as_deref()),
+                bustype,
+                msg.destination(),
+                msg.path().map(|p| p.as_str()),
+                msg.interface(),
+                msg.member(),
+                conn.credentials.uid,
+            ) {
                 continue;
             }
         }
@@ -158,6 +196,34 @@ async fn dispatch_method_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg
             &msg,
             errors::ACCESS_DENIED,
             format!("Connection is not allowed to send to \"{dest}\""),
+        )
+        .await;
+        return;
+    }
+
+    let bustype = match bus.kind {
+        crate::BusKind::System => "system",
+        crate::BusKind::Session => "session",
+    };
+    let dst_conn = bus.registry.get_name_owner(dest).and_then(|o| bus.registry.get(&o));
+    if !crate::apparmor::check_permission(
+        crate::apparmor::AA_DBUS_SEND,
+        sender.security_label.as_deref(),
+        dst_conn.as_ref().and_then(|c| c.security_label.as_deref()),
+        bustype,
+        Some(dest),
+        msg.path().map(|p| p.as_str()),
+        msg.interface(),
+        msg.member(),
+        sender.credentials.uid,
+    ) {
+        bus.stats.record_denial();
+        reply_error(
+            bus,
+            sender,
+            &msg,
+            errors::ACCESS_DENIED,
+            format!("AppArmor mediation denied sending to \"{dest}\""),
         )
         .await;
         return;
@@ -212,6 +278,33 @@ async fn deliver_to_owner(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: &M
             msg,
             errors::ACCESS_DENIED,
             "Destination is not allowed to receive this message",
+        )
+        .await;
+        return;
+    }
+
+    let bustype = match bus.kind {
+        crate::BusKind::System => "system",
+        crate::BusKind::Session => "session",
+    };
+    if !crate::apparmor::check_permission(
+        crate::apparmor::AA_DBUS_RECEIVE,
+        conn.security_label.as_deref(),
+        sender.security_label.as_deref(),
+        bustype,
+        msg.destination(),
+        msg.path().map(|p| p.as_str()),
+        msg.interface(),
+        msg.member(),
+        conn.credentials.uid,
+    ) {
+        bus.stats.record_denial();
+        reply_error(
+            bus,
+            sender,
+            msg,
+            errors::ACCESS_DENIED,
+            "AppArmor mediation denied recipient from receiving this message",
         )
         .await;
         return;
@@ -498,5 +591,64 @@ fn driver_serial() -> u32 {
         if v != 0 {
             return v;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bus::{Bus, BusKind};
+    use oxibus_config::GlobalConfig;
+    use oxibus_core::{MessageBuilder, ObjectPath, SerialGenerator};
+
+    #[tokio::test]
+    async fn monitor_receives_exactly_one_copy_of_signal() {
+        let bus = Arc::new(Bus::new(BusKind::Session, GlobalConfig::default()));
+
+        let (a, b) = tokio::net::UnixStream::pair().unwrap();
+        let transport = oxibus_transport::Transport::new(a).unwrap();
+        let mut transport_recv = oxibus_transport::Transport::new(b).unwrap();
+        let unique_name = bus.registry.allocate_unique_name();
+        
+        let conn = Arc::new(crate::registry::ConnectionEntry {
+            unique_name: unique_name.clone(),
+            writer: transport.writer(),
+            credentials: transport.credentials(),
+            security_label: None,
+            match_rules: std::sync::RwLock::new(Vec::new()),
+            is_monitor: std::sync::atomic::AtomicBool::new(true),
+            is_registered: std::sync::atomic::AtomicBool::new(true),
+        });
+        
+        bus.registry.add_connection(conn.clone());
+
+        let serial = SerialGenerator::new();
+        let msg = MessageBuilder::signal(
+            ObjectPath::new("/org/example/Test").unwrap(),
+            "org.example.Test".to_string(),
+            "FooSignal".to_string(),
+        )
+        .sender(unique_name.clone())
+        .build(serial.next());
+
+        dispatch_incoming(&bus, &conn, msg).await;
+
+        let received = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            transport_recv.read_message(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(received.member(), Some("FooSignal"));
+
+        let second = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            transport_recv.read_message(),
+        )
+        .await;
+        
+        assert!(second.is_err(), "Monitor received a duplicate message!");
     }
 }

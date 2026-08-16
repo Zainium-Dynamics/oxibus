@@ -372,6 +372,7 @@ impl Value {
         }
     }
 
+    /// If this value is a string, object path, or signature, borrows it as a string slice.
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s),
@@ -381,6 +382,7 @@ impl Value {
         }
     }
 
+    /// If this value is a `UInt32` or `UnixFd`, returns its value as a `u32`.
     pub fn as_u32(&self) -> Option<u32> {
         match self {
             Value::UInt32(v) => Some(*v),
@@ -389,6 +391,7 @@ impl Value {
         }
     }
 
+    /// Recursively unwraps variant wrappers to return the underlying concrete `Value`.
     pub fn unwrap_variant(&self) -> &Value {
         match self {
             Value::Variant(inner) => inner.unwrap_variant(),
@@ -396,6 +399,7 @@ impl Value {
         }
     }
 
+    /// Helper to construct a `Value::String` from any type that converts into a `String`.
     pub fn string(s: impl Into<String>) -> Value {
         Value::String(s.into())
     }

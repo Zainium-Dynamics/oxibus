@@ -11,8 +11,8 @@ repository.workspace = true
 
 [dependencies]
 oxibus-core = { workspace = true }
-oxibus-transport = { path = "../oxibus-transport" }
-oxibus-auth = { path = "../oxibus-auth" }
+oxibus-transport = { workspace = true }
+oxibus-auth = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }

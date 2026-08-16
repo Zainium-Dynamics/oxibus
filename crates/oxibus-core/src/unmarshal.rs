@@ -3,13 +3,18 @@
 use crate::error::{CoreError, CoreResult};
 use crate::types::{is_valid_object_path, ArrayValue, ObjectPath, Signature, Type, Value, MAX_ARRAY_LEN};
 
+/// Decoder for D-Bus wire-marshaled values.
 pub struct Unmarshaler<'a> {
+    /// The buffer of marshaled bytes to read from.
     pub buf: &'a [u8],
+    /// The current byte offset/position inside the buffer.
     pub pos: usize,
+    /// Whether the wire representation is big-endian (true) or little-endian (false).
     pub big_endian: bool,
 }
 
 impl<'a> Unmarshaler<'a> {
+    /// Creates a new `Unmarshaler` for the given buffer and endianness.
     pub fn new(buf: &'a [u8], big_endian: bool) -> Self {
         Self {
             buf,
@@ -29,6 +34,7 @@ impl<'a> Unmarshaler<'a> {
         }
     }
 
+    /// Aligns the current buffer position to a multiple of `n` bytes.
     pub fn align(&mut self, n: usize) -> CoreResult<()> {
         let rem = self.pos % n;
         if rem != 0 {
@@ -41,6 +47,7 @@ impl<'a> Unmarshaler<'a> {
         Ok(())
     }
 
+    /// Reads a single byte from the buffer.
     pub fn read_u8(&mut self) -> CoreResult<u8> {
         self.need(1)?;
         let v = self.buf[self.pos];
@@ -48,6 +55,7 @@ impl<'a> Unmarshaler<'a> {
         Ok(v)
     }
 
+    /// Reads an aligned unsigned 16-bit integer.
     pub fn read_u16(&mut self) -> CoreResult<u16> {
         self.align(2)?;
         self.need(2)?;
@@ -60,10 +68,12 @@ impl<'a> Unmarshaler<'a> {
         })
     }
 
+    /// Reads an aligned signed 16-bit integer.
     pub fn read_i16(&mut self) -> CoreResult<i16> {
         Ok(self.read_u16()? as i16)
     }
 
+    /// Reads an aligned unsigned 32-bit integer.
     pub fn read_u32(&mut self) -> CoreResult<u32> {
         self.align(4)?;
         self.need(4)?;
@@ -77,10 +87,12 @@ impl<'a> Unmarshaler<'a> {
         })
     }
 
+    /// Reads an aligned signed 32-bit integer.
     pub fn read_i32(&mut self) -> CoreResult<i32> {
         Ok(self.read_u32()? as i32)
     }
 
+    /// Reads an aligned unsigned 64-bit integer.
     pub fn read_u64(&mut self) -> CoreResult<u64> {
         self.align(8)?;
         self.need(8)?;
@@ -94,10 +106,12 @@ impl<'a> Unmarshaler<'a> {
         })
     }
 
+    /// Reads an aligned signed 64-bit integer.
     pub fn read_i64(&mut self) -> CoreResult<i64> {
         Ok(self.read_u64()? as i64)
     }
 
+    /// Reads an aligned double-precision floating-point number.
     pub fn read_f64(&mut self) -> CoreResult<f64> {
         Ok(f64::from_bits(self.read_u64()?))
     }
@@ -133,6 +147,7 @@ impl<'a> Unmarshaler<'a> {
         Ok(s)
     }
 
+    /// Reads a single complete `Value` of the specified `Type` from the buffer.
     pub fn read_value(&mut self, ty: &Type) -> CoreResult<Value> {
         Ok(match ty {
             Type::Byte => Value::Byte(self.read_u8()?),
@@ -209,10 +224,12 @@ impl<'a> Unmarshaler<'a> {
         })
     }
 
+    /// Reads a list of values matching the specified slice of types.
     pub fn read_values(&mut self, types: &[Type]) -> CoreResult<Vec<Value>> {
         types.iter().map(|t| self.read_value(t)).collect()
     }
 
+    /// Returns the number of bytes remaining in the buffer.
     pub fn remaining(&self) -> usize {
         self.buf.len().saturating_sub(self.pos)
     }

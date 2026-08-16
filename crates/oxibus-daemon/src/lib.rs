@@ -5,6 +5,10 @@
 //! for `oxibus-tools`).
 
 pub mod activation;
+/// AppArmor dynamic mediation layer.
+pub mod apparmor;
+/// Audit subsystem logging integration.
+pub mod audit;
 pub mod bus;
 pub mod connection_handler;
 pub mod dispatch;
