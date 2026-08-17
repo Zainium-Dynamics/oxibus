@@ -4,6 +4,12 @@ target/
 # Separate workspace — not part of oxibus
 quantra-system/
 
+# quantra-logind lives here only as a local dev copy (path deps on
+# oxibus-client/oxibus-core for fast iteration); its real home + committed
+# copy is the quantra-system repo, consuming oxibus via a git dependency.
+quantra-logind/
+.cargo_home/
+
 .gemini/
 .claude/
 .aider*
