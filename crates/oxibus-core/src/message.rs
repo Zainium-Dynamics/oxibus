@@ -1,4 +1,4 @@
-//! A complete D-Bus message: header + body, plus out-of-band unix fds.
+// Message construction, serialization, and deserialization.
 
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -8,26 +8,20 @@ use crate::header::{flags, HeaderField, MessageHeader, MessageType};
 use crate::marshal::Marshaler;
 use crate::types::{ObjectPath, Signature, Value};
 
-/// Per-connection monotonic serial allocator. D-Bus serials are non-zero
-/// u32s; 0 is reserved to mean "no reply expected / not yet sent".
 #[derive(Debug)]
 pub struct SerialGenerator(AtomicU32);
 
 impl SerialGenerator {
-    /// Create a generator whose first call to [`next`](Self::next) returns 1.
     pub fn new() -> Self {
         Self(AtomicU32::new(1))
     }
 
-    /// Atomically allocate the next serial number, wrapping past 0 (which is
-    /// reserved) back to 1.
     pub fn next(&self) -> u32 {
         loop {
             let v = self.0.fetch_add(1, Ordering::Relaxed);
             if v != 0 {
                 return v;
             }
-            // wrapped through 0 — skip it, try again
         }
     }
 }
@@ -38,67 +32,49 @@ impl Default for SerialGenerator {
     }
 }
 
-/// A complete D-Bus message: decoded header, decoded body values, and any
-/// file descriptors that travel alongside it out-of-band.
 #[derive(Debug, Clone)]
 pub struct Message {
-    /// The message's header (type, flags, serial, path/interface/member/etc fields).
     pub header: MessageHeader,
-    /// The decoded body arguments, one `Value` per top-level type in the body signature.
     pub body: Vec<Value>,
-    /// File descriptors referenced by `UnixFd` values in the body, transferred via SCM_RIGHTS.
     pub fds: Vec<RawFd>,
 }
 
 impl Message {
-    /// The kind of message (method call, method return, error, or signal).
     pub fn message_type(&self) -> MessageType {
         self.header.message_type
     }
-    /// The message's serial number, unique per sending connection.
     pub fn serial(&self) -> u32 {
         self.header.serial
     }
-    /// The object path this message targets or was sent from, if present.
     pub fn path(&self) -> Option<&ObjectPath> {
         self.header.path()
     }
-    /// The interface the member belongs to, if present.
     pub fn interface(&self) -> Option<&str> {
         self.header.interface()
     }
-    /// The method or signal name, if present.
     pub fn member(&self) -> Option<&str> {
         self.header.member()
     }
-    /// The unique or well-known name of the intended recipient, if present.
     pub fn destination(&self) -> Option<&str> {
         self.header.destination()
     }
-    /// The unique name of the sending connection, if present (set by the bus).
     pub fn sender(&self) -> Option<&str> {
         self.header.sender()
     }
-    /// The serial of the message this one replies to, if present.
     pub fn reply_serial(&self) -> Option<u32> {
         self.header.reply_serial()
     }
-    /// Whether the `NO_REPLY_EXPECTED` flag is set.
     pub fn no_reply_expected(&self) -> bool {
         self.header.flags & flags::NO_REPLY_EXPECTED != 0
     }
-    /// Whether the `NO_AUTO_START` flag is set.
     pub fn no_auto_start(&self) -> bool {
         self.header.flags & flags::NO_AUTO_START != 0
     }
 
-    /// Set (or replace) the `SENDER` header field.
     pub fn set_sender(&mut self, sender: impl Into<String>) {
         self.header.set_sender(sender.into());
     }
 
-    /// Serialize to wire bytes. `fds.len()` is written into the UNIX_FDS
-    /// header field automatically if non-empty.
     pub fn to_bytes(&self) -> CoreResult<Vec<u8>> {
         let (body_bytes, sig) = crate::marshal::marshal_body(&self.body, self.header.big_endian)?;
 
@@ -121,9 +97,6 @@ impl Message {
         Ok(m.into_bytes())
     }
 
-    /// Given a complete frame (as sized by [`MessageHeader::peek_frame_len`]),
-    /// parse header + body. `fds` are the unix fds that arrived out-of-band
-    /// alongside this frame (via SCM_RIGHTS), supplied by the transport.
     pub fn from_bytes(buf: &[u8], fds: Vec<RawFd>) -> CoreResult<Message> {
         let (header, body_offset) = MessageHeader::read(buf)?;
         let body_buf = &buf[body_offset..body_offset + header.body_length as usize];
@@ -143,8 +116,6 @@ impl Message {
     }
 }
 
-/// Builder for constructing outgoing messages. Endianness defaults to the
-/// host's native order (little-endian on every Zainium target).
 pub struct MessageBuilder {
     message_type: MessageType,
     flags: u8,
@@ -166,7 +137,6 @@ impl MessageBuilder {
         }
     }
 
-    /// Start building a `METHOD_CALL` to the given object path and member name.
     pub fn method_call(path: ObjectPath, member: impl Into<String>) -> Self {
         let mut b = Self::new(MessageType::MethodCall);
         b.fields.push(HeaderField::Path(path));
@@ -174,7 +144,6 @@ impl MessageBuilder {
         b
     }
 
-    /// Start building a `SIGNAL` with the given path, interface and member name.
     pub fn signal(path: ObjectPath, interface: impl Into<String>, member: impl Into<String>) -> Self {
         let mut b = Self::new(MessageType::Signal);
         b.fields.push(HeaderField::Path(path));
@@ -183,15 +152,12 @@ impl MessageBuilder {
         b
     }
 
-    /// Start building a `METHOD_RETURN` replying to the call with serial `reply_to_serial`.
     pub fn method_return(reply_to_serial: u32) -> Self {
         let mut b = Self::new(MessageType::MethodReturn);
         b.fields.push(HeaderField::ReplySerial(reply_to_serial));
         b
     }
 
-    /// Start building an `ERROR` reply to the call with serial `reply_to_serial`,
-    /// carrying the given D-Bus error name (e.g. `org.freedesktop.DBus.Error.Failed`).
     pub fn error(
         reply_to_serial: u32,
         error_name: impl Into<String>,
@@ -202,62 +168,58 @@ impl MessageBuilder {
         b
     }
 
-    /// Set the `INTERFACE` header field.
     pub fn interface(mut self, iface: impl Into<String>) -> Self {
         self.fields.push(HeaderField::Interface(iface.into()));
         self
     }
-    /// Set the `DESTINATION` header field.
+
     pub fn destination(mut self, dest: impl Into<String>) -> Self {
         self.fields.push(HeaderField::Destination(dest.into()));
         self
     }
-    /// Set the `SENDER` header field.
+
     pub fn sender(mut self, sender: impl Into<String>) -> Self {
         self.fields.push(HeaderField::Sender(sender.into()));
         self
     }
-    /// Set the `NO_REPLY_EXPECTED` flag.
+
     pub fn no_reply_expected(mut self) -> Self {
         self.flags |= flags::NO_REPLY_EXPECTED;
         self
     }
-    /// Set the `NO_AUTO_START` flag.
+
     pub fn no_auto_start(mut self) -> Self {
         self.flags |= flags::NO_AUTO_START;
         self
     }
-    /// Set the `ALLOW_INTERACTIVE_AUTHORIZATION` flag.
+
     pub fn allow_interactive_authorization(mut self) -> Self {
         self.flags |= flags::ALLOW_INTERACTIVE_AUTHORIZATION;
         self
     }
-    /// Append a single argument to the message body.
+
     pub fn arg(mut self, v: Value) -> Self {
         self.body.push(v);
         self
     }
-    /// Append multiple arguments to the message body.
+
     pub fn args(mut self, vs: Vec<Value>) -> Self {
         self.body.extend(vs);
         self
     }
-    /// Append a file descriptor to be sent out-of-band alongside the message.
+
     pub fn fd(mut self, fd: RawFd) -> Self {
         self.fds.push(fd);
         self
     }
 
-    /// Finish building, assigning `serial` as the message's serial number.
-    /// The header's `body_length` is left at 0 here and filled in later by
-    /// [`Message::to_bytes`] once the body is actually marshaled.
     pub fn build(self, serial: u32) -> Message {
         let header = MessageHeader {
             big_endian: self.big_endian,
             message_type: self.message_type,
             flags: self.flags,
             protocol_version: crate::header::PROTOCOL_VERSION,
-            body_length: 0, // filled in by to_bytes()
+            body_length: 0,
             serial,
             fields: self.fields,
         };
@@ -269,8 +231,6 @@ impl MessageBuilder {
     }
 }
 
-/// Build a `METHOD_RETURN`/`ERROR` in reply to an incoming call, copying the
-/// DESTINATION from the caller's SENDER as required by the spec.
 pub fn reply_to(call: &Message, error_name: Option<&str>) -> MessageBuilder {
     let mut b = match error_name {
         None => MessageBuilder::method_return(call.serial()),

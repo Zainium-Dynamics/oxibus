@@ -1,21 +1,4 @@
-//! TOML security policy — the Zainium replacement for D-Bus's XML
-//! `<policy>` blocks in `system.conf`/`session.conf`. Same last-match-wins
-//! evaluation model (spec §Message Bus Security, `bus/policy.c`), applied
-//! per connection identity (uid / primary+supplementary gids), just
-//! expressed as `[[rule]]` tables instead of XML.
-//!
-//! ```toml
-//! [[rule]]
-//! context = "default"
-//! allow_own = ["*"]
-//! allow_send = ["*"]
-//! allow_receive = ["*"]
-//!
-//! [[rule]]
-//! context = "user"
-//! user = "messagebus"
-//! allow_own = ["org.freedesktop.DBus"]
-//! ```
+// TOML security policy evaluation (context precedence: default, user, group, mandatory).
 
 use std::path::{Path, PathBuf};
 
@@ -23,90 +6,49 @@ use oxibus_core::header::MessageType;
 use oxibus_core::Message;
 use serde::Deserialize;
 
-/// Which identities a [`PolicyRule`] applies to — evaluated in this order
-/// (default, then user, then group, then mandatory) regardless of file or
-/// declaration order, matching `bus/policy.c`'s context precedence.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Context {
-    /// Applies to every connection; evaluated first, so any later context
-    /// can override it.
     Default,
-    /// Applies only when `user` matches the connection's resolved username
-    /// or numeric uid.
     User,
-    /// Applies only when `group` matches one of the connection's resolved
-    /// group names.
     Group,
-    /// Applies to every connection and is evaluated last, so it always has
-    /// the final say for the fields it sets (mirrors `<policy
-    /// context="mandatory">` in real dbus config).
     Mandatory,
 }
 
-/// One `[[rule]]` entry from a policy TOML file — a context selector plus
-/// allow/deny glob lists for owning names and sending/receiving messages.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PolicyRule {
-    /// Which identities this rule applies to.
     pub context: Context,
-    /// Required when `context = "user"`: matched against the resolved
-    /// username, or the uid as a decimal string.
     #[serde(default)]
     pub user: Option<String>,
-    /// Required when `context = "group"`: matched against any of the
-    /// connection's resolved group names.
     #[serde(default)]
     pub group: Option<String>,
-    /// Bus-name glob patterns this rule permits owning.
     #[serde(default)]
     pub allow_own: Vec<String>,
-    /// Bus-name glob patterns this rule forbids owning.
     #[serde(default)]
     pub deny_own: Vec<String>,
-    /// Patterns this rule permits sending messages to.
     #[serde(default)]
     pub allow_send: Vec<SendReceivePattern>,
-    /// Patterns this rule forbids sending messages to.
     #[serde(default)]
     pub deny_send: Vec<SendReceivePattern>,
-    /// Patterns this rule permits receiving messages from.
     #[serde(default)]
     pub allow_receive: Vec<SendReceivePattern>,
-    /// Patterns this rule forbids receiving messages from.
     #[serde(default)]
     pub deny_receive: Vec<SendReceivePattern>,
 }
 
-/// A send/receive filter. Bare strings (`"*"`, `"org.freedesktop.DBus"`) are
-/// shorthand for `{ destination = "..." }`; the table form allows filtering
-/// by interface/member/path too.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum SendReceivePattern {
-    /// Shorthand form: a bare glob string, equivalent to `Full` with only
-    /// `destination` set.
     Destination(String),
-    /// Table form allowing the filter to also constrain interface, member,
-    /// path, and/or message type; every field present must match for the
-    /// pattern to apply.
     Full {
-        /// Destination glob, matched against the other party's bus name
-        /// (unset matches any destination).
         #[serde(default)]
         destination: Option<String>,
-        /// Required interface, if set.
         #[serde(default)]
         interface: Option<String>,
-        /// Required member (method/signal name), if set.
         #[serde(default)]
         member: Option<String>,
-        /// Required exact object path, if set.
         #[serde(default)]
         path: Option<String>,
-        /// Required message type as a string (`"method_call"`,
-        /// `"method_return"`, `"signal"`, or `"error"`); an unrecognized
-        /// value matches everything rather than rejecting the rule.
         #[serde(default)]
         r#type: Option<String>,
     },
@@ -163,8 +105,6 @@ impl SendReceivePattern {
     }
 }
 
-/// Minimal glob: `*` matches any run of characters, everything else is
-/// literal (sufficient for bus-name / interface patterns; no `?`/`[]`).
 fn glob_match(pattern: &str, text: &str) -> bool {
     if pattern == "*" {
         return true;
@@ -181,35 +121,23 @@ struct PolicyFile {
     rules: Vec<PolicyRule>,
 }
 
-/// Borrowed view of a connection's resolved identity, as evaluated against
-/// policy rules. Mirrors [`crate::identity::Identity`]'s fields without
-/// owning them, since callers typically already have an owned copy alive
-/// for the duration of the policy check.
 #[derive(Debug, Clone, Copy)]
 pub struct Identity<'a> {
-    /// The connection's uid.
     pub uid: u32,
-    /// The connection's resolved username, if any.
     pub user_name: Option<&'a str>,
-    /// The connection's resolved group names (primary and supplementary).
     pub group_names: &'a [String],
 }
 
-/// The full set of policy rules loaded for a bus, in file order. An empty
-/// `Policy` (no `[[rule]]` entries loaded at all) is a distinguished
-/// permissive state — see [`Policy::is_empty`] and the `can_*` methods.
 #[derive(Default)]
 pub struct Policy {
     rules: Vec<PolicyRule>,
 }
 
 impl Policy {
-    /// Load and concatenate every `*.toml` and `*.conf` (XML) in `dir`, in filename order.
     pub fn load_dir(dir: &Path) -> std::io::Result<Self> {
         Self::load_dirs(&[dir.to_path_buf()])
     }
 
-    /// Load and concatenate every `*.toml` and `*.conf` (XML) in the specified list of directories.
     pub fn load_dirs(dirs: &[PathBuf]) -> std::io::Result<Self> {
         let mut rules = Vec::new();
         for dir in dirs {
@@ -246,7 +174,6 @@ impl Policy {
         Ok(Self { rules })
     }
 
-    /// Returns true if this policy has no rules loaded.
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
@@ -286,10 +213,6 @@ impl Policy {
             .collect()
     }
 
-    /// Last-match-wins over `allow_own`/`deny_own` glob patterns. If no
-    /// policy is configured at all, every name is ownable (permissive dev
-    /// default — the session bus and a from-scratch system bus both ship
-    /// with an empty `policy.d/` until the administrator opts in).
     pub fn can_own(&self, identity: &Identity, name: &str) -> bool {
         if self.is_empty() {
             return true;
@@ -306,7 +229,6 @@ impl Policy {
         verdict
     }
 
-    /// Checks whether the given identity is allowed to send the specified message.
     pub fn can_send(&self, identity: &Identity, msg: &Message, destination: Option<&str>) -> bool {
         if self.is_empty() {
             return true;
@@ -323,7 +245,6 @@ impl Policy {
         verdict
     }
 
-    /// Checks whether the given identity is allowed to receive the specified message.
     pub fn can_receive(&self, identity: &Identity, msg: &Message, sender: Option<&str>) -> bool {
         if self.is_empty() {
             return true;
@@ -354,21 +275,19 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
 
     while let Some(&(_i, c)) = chars.peek() {
         if c == '<' {
-            chars.next(); // consume '<'
+            chars.next();
             
-            // Check for comment
             if let Some(&(_, '!')) = chars.peek() {
-                chars.next(); // consume '!'
+                chars.next();
                 if let Some(&(_, '-')) = chars.peek() {
-                    chars.next(); // consume '-'
+                    chars.next();
                     if let Some(&(_, '-')) = chars.peek() {
-                        chars.next(); // consume '-'
-                        // Skip until '-->'
+                        chars.next();
                         while let Some(&(idx, ch)) = chars.peek() {
                             if ch == '-' && xml[idx..].starts_with("-->") {
-                                chars.next(); // '-'
-                                chars.next(); // '-'
-                                chars.next(); // '>'
+                                chars.next();
+                                chars.next();
+                                chars.next();
                                 break;
                             }
                             chars.next();
@@ -376,14 +295,11 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                         continue;
                     }
                 } else if let Some(&(_, '[')) = chars.peek() {
-                    // Check CDATA or doctype
-                    // Just skip until '>'
                     while let Some((_, ch)) = chars.next() {
                         if ch == '>' { break; }
                     }
                     continue;
                 } else {
-                    // Other <! like DOCTYPE, just skip until '>'
                     while let Some((_, ch)) = chars.next() {
                         if ch == '>' { break; }
                     }
@@ -391,14 +307,12 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                 }
             }
 
-            // It's a tag
             let mut is_end = false;
             if let Some(&(_, '/')) = chars.peek() {
                 is_end = true;
                 chars.next();
             }
 
-            // Read tag name
             let mut tag_name = String::new();
             while let Some(&(_idx, ch)) = chars.peek() {
                 if ch.is_whitespace() || ch == '>' || ch == '/' {
@@ -409,10 +323,8 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
             }
 
             let mut attrs = std::collections::HashMap::new();
-            // Read attributes if not end tag
             if !is_end {
                 loop {
-                    // Skip whitespace
                     while let Some(&(_, ch)) = chars.peek() {
                         if ch.is_whitespace() {
                             chars.next();
@@ -429,7 +341,6 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                         break;
                     }
 
-                    // Read attribute name
                     let mut attr_name = String::new();
                     while let Some(&(_idx, ch)) = chars.peek() {
                         if ch == '=' || ch.is_whitespace() || ch == '>' || ch == '/' {
@@ -439,7 +350,6 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                         chars.next();
                     }
 
-                    // Skip whitespace and look for '='
                     while let Some(&(_, ch)) = chars.peek() {
                         if ch.is_whitespace() {
                             chars.next();
@@ -449,12 +359,11 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                     }
 
                     if let Some(&(_, '=')) = chars.peek() {
-                        chars.next(); // consume '='
+                        chars.next();
                     } else {
-                        continue; // invalid attribute, skip
+                        continue;
                     }
 
-                    // Skip whitespace and look for quote
                     while let Some(&(_, ch)) = chars.peek() {
                         if ch.is_whitespace() {
                             chars.next();
@@ -468,13 +377,12 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                             chars.next();
                             q
                         } else {
-                            '"' // default fallback
+                            '"'
                         }
                     } else {
                         '"'
                     };
 
-                    // Read attribute value
                     let mut attr_val = String::new();
                     while let Some((_, ch)) = chars.next() {
                         if ch == quote_char {
@@ -489,7 +397,6 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                 }
             }
 
-            // Read end of tag
             let mut is_self_closing = false;
             if let Some(&(_, '/')) = chars.peek() {
                 is_self_closing = true;
@@ -508,7 +415,6 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                 tokens.push(XmlToken::StartTag { name: tag_name, attrs });
             }
         } else {
-            // Text or other, just skip
             chars.next();
         }
     }
@@ -561,7 +467,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
 
                         let mut has_applied = false;
 
-                        // Ownership
                         if let Some(own) = attrs.get("own") {
                             if is_allow {
                                 rule.allow_own.push(own.clone());
@@ -579,7 +484,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                             has_applied = true;
                         }
 
-                        // Send rules
                         let send_destination = attrs.get("send_destination");
                         let send_destination_prefix = attrs.get("send_destination_prefix");
                         let send_interface = attrs.get("send_interface");
@@ -608,7 +512,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                             has_applied = true;
                         }
 
-                        // Receive rules
                         let recv_sender = attrs.get("recv_sender");
                         let recv_sender_prefix = attrs.get("recv_sender_prefix");
                         let recv_interface = attrs.get("recv_interface");
@@ -669,7 +572,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
 
                                 let mut has_applied = false;
 
-                                // Ownership
                                 if let Some(own) = attrs.get("own") {
                                     if is_allow {
                                         rule.allow_own.push(own.clone());
@@ -687,7 +589,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                                     has_applied = true;
                                 }
 
-                                // Send rules
                                 let send_destination = attrs.get("send_destination");
                                 let send_destination_prefix = attrs.get("send_destination_prefix");
                                 let send_interface = attrs.get("send_interface");
@@ -716,7 +617,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                                     has_applied = true;
                                 }
 
-                                // Receive rules
                                 let recv_sender = attrs.get("recv_sender");
                                 let recv_sender_prefix = attrs.get("recv_sender_prefix");
                                 let recv_interface = attrs.get("recv_interface");
@@ -846,11 +746,9 @@ allow_own = ["org.freedesktop.DBus"]
         let rules = parse_xml_policy(xml);
         assert_eq!(rules.len(), 5);
 
-        // Rule 0: allow own="org.freedesktop.DBus"
         assert_eq!(rules[0].context, Context::Default);
         assert_eq!(rules[0].allow_own, vec!["org.freedesktop.DBus".to_string()]);
 
-        // Rule 1: deny send_destination="*"
         assert_eq!(rules[1].context, Context::Default);
         assert_eq!(rules[1].deny_send.len(), 1);
         if let SendReceivePattern::Full { destination, .. } = &rules[1].deny_send[0] {
@@ -859,7 +757,6 @@ allow_own = ["org.freedesktop.DBus"]
             panic!("Expected Full pattern");
         }
 
-        // Rule 3: allow own_prefix="org.freedesktop.Notifications"
         assert_eq!(rules[3].context, Context::User);
         assert_eq!(rules[3].user.as_deref(), Some("root"));
         assert_eq!(rules[3].allow_own, vec!["org.freedesktop.Notifications*".to_string()]);

@@ -1,13 +1,11 @@
+// AppArmor dynamic mediation.
+
 use std::sync::OnceLock;
 use tracing::{debug, warn};
 
-/// AppArmor D-Bus class ID.
 pub const AA_CLASS_DBUS: u8 = 32;
-/// Permission to send a message.
 pub const AA_DBUS_SEND: u32 = 1 << 1;
-/// Permission to receive a message.
 pub const AA_DBUS_RECEIVE: u32 = 1 << 2;
-/// Permission to acquire/bind a service name.
 pub const AA_DBUS_BIND: u32 = 1 << 6;
 
 struct AppArmorLib {
@@ -70,13 +68,10 @@ fn get_apparmor_lib() -> Option<&'static AppArmorLib> {
     }).as_ref()
 }
 
-/// Check if AppArmor mediation is enabled.
 pub fn is_enabled() -> bool {
     get_apparmor_lib().is_some()
 }
 
-/// Query the AppArmor kernel module for permissions.
-/// Returns Ok((allowed, audited)) or Err.
 pub fn query_label(mask: u32, query_data: &[u8]) -> Result<(bool, bool), std::io::Error> {
     let Some(lib) = get_apparmor_lib() else {
         return Ok((true, false));
@@ -103,14 +98,12 @@ pub fn query_label(mask: u32, query_data: &[u8]) -> Result<(bool, bool), std::io
     Ok((allowed != 0, audited != 0))
 }
 
-/// Get the current daemon's confinement label.
 pub fn get_self_label() -> String {
     std::fs::read_to_string("/proc/self/attr/current")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unconfined".to_string())
 }
 
-/// Format the query buffer for AppArmor D-Bus mediation class.
 pub fn build_query(
     con: &str,
     bustype: &str,
@@ -120,7 +113,7 @@ pub fn build_query(
     interface: Option<&str>,
     member: Option<&str>,
 ) -> Vec<u8> {
-    let mut query = vec![0u8; 6]; // AA_QUERY_CMD_LABEL_SIZE
+    let mut query = vec![0u8; 6];
     query.extend_from_slice(con.as_bytes());
     query.push(0);
     query.push(AA_CLASS_DBUS);
@@ -139,8 +132,6 @@ pub fn build_query(
     query
 }
 
-/// Mediate access control check with AppArmor and Audit.
-/// Returns true if allowed, false if denied.
 pub fn check_permission(
     mask: u32,
     con: Option<&str>,
@@ -195,7 +186,7 @@ pub fn check_permission(
         }
         Err(e) => {
             warn!("AppArmor query failed: {e}");
-            true // Fail open (default behavior)
+            true
         }
     }
 }

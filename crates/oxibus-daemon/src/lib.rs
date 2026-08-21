@@ -1,13 +1,7 @@
-#![allow(rustdoc::broken_intra_doc_links)]
-#![warn(missing_docs)]
-//! `oxibus-daemon` library surface — split out from `main.rs` so the bus
-//! logic is unit-testable and reusable (e.g. by an in-process test harness
-//! for `oxibus-tools`).
+// oxibus-daemon core library modules.
 
 pub mod activation;
-/// AppArmor dynamic mediation layer.
 pub mod apparmor;
-/// Audit subsystem logging integration.
 pub mod audit;
 pub mod bus;
 pub mod connection_handler;

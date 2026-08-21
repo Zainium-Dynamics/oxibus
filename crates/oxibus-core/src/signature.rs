@@ -1,15 +1,4 @@
-//! Signature string parsing/validation, per the D-Bus Specification grammar:
-//!
-//! ```text
-//! complete_type ::= basic_type | container_type
-//! basic_type    ::= 'y'|'b'|'n'|'q'|'i'|'u'|'x'|'t'|'d'|'s'|'o'|'g'|'h'
-//! container_type::= 'a' complete_type | '(' complete_type+ ')'
-//!                  | '{' basic_type complete_type '}' | 'v'
-//! ```
-//!
-//! `{...}` (DICT_ENTRY) is only legal directly inside an `a` (as the array's
-//! element type) — we enforce that at the call site rather than in the
-//! grammar itself, matching libdbus' `dbus-signature.c`.
+// Signature string parsing/validation.
 
 use crate::error::{CoreError, CoreResult};
 use crate::types::{Type, MAX_ARRAY_DEPTH, MAX_STRUCT_DEPTH};
@@ -60,8 +49,6 @@ impl<'a> Parser<'a> {
                         max_struct: MAX_STRUCT_DEPTH,
                     });
                 }
-                // The element may itself be a dict-entry (that's what makes
-                // this array a "dict"), so allow_dict_entry propagates true.
                 let elem = self.parse_one(true)?;
                 self.array_depth -= 1;
                 Type::Array(Box::new(elem))
@@ -150,7 +137,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Parse a signature string into zero or more complete types.
 pub fn parse_signature(s: &str) -> CoreResult<Vec<Type>> {
     if s.len() > crate::types::MAX_SIGNATURE_LEN {
         return Err(CoreError::SignatureTooLong(s.len()));
@@ -174,8 +160,6 @@ pub fn parse_signature(s: &str) -> CoreResult<Vec<Type>> {
     Ok(out)
 }
 
-/// Parse a signature that must describe exactly one complete type (used for
-/// VARIANT contents and array element types passed around independently).
 pub fn parse_single_complete_type(s: &str) -> CoreResult<Type> {
     let types = parse_signature(s)?;
     if types.len() != 1 {

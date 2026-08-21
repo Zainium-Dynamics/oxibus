@@ -1,5 +1,4 @@
-//! A live D-Bus connection: SASL handshake, method-call/reply matching,
-//! signal fan-out, and dispatch of incoming calls into an [`ObjectServer`].
+// Live D-Bus connection implementation.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -16,8 +15,6 @@ use oxibus_transport::{Transport, Writer};
 use crate::error::{ClientError, ClientResult};
 use crate::object_server::ObjectServer;
 
-/// SASL mechanisms tried by [`Connection::connect`], in order: `EXTERNAL`
-/// (kernel-verified UID) first, falling back to `DBUS_COOKIE_SHA1`.
 pub fn default_mechanisms() -> Vec<Mechanism> {
     vec![Mechanism::External, Mechanism::DbusCookieSha1]
 }
@@ -26,10 +23,6 @@ struct Inner {
     writer: Writer,
     pending: Arc<StdMutex<HashMap<u32, oneshot::Sender<Message>>>>,
     signal_tx: broadcast::Sender<Message>,
-    /// Every incoming message, regardless of type — used by monitor-style
-    /// tools (`oxibus-monitor`) after calling `BecomeMonitor`, where the
-    /// bus fans out raw traffic (method calls/returns/errors too, not just
-    /// signals) to this connection.
     raw_tx: broadcast::Sender<Message>,
     serials: SerialGenerator,
     unique_name: Arc<StdMutex<Option<String>>>,
@@ -37,28 +30,16 @@ struct Inner {
     _reader_task: JoinHandle<()>,
 }
 
-/// A live, authenticated D-Bus connection. Cheap to clone (an `Arc` handle
-/// around shared state); the reader task and any pending calls stay alive
-/// as long as one clone does.
 #[derive(Clone)]
 pub struct Connection {
     inner: Arc<Inner>,
 }
 
 impl Connection {
-    /// Connects to `address` and performs the SASL handshake using
-    /// [`default_mechanisms`], with Unix-fd passing requested and an empty
-    /// [`ObjectServer`] to receive incoming calls. Errors if the transport
-    /// can't be reached or the handshake fails.
     pub async fn connect(address: &Address) -> ClientResult<Self> {
         Self::connect_with(address, default_mechanisms(), true, Arc::new(ObjectServer::new())).await
     }
 
-    /// Connects to `address` and authenticates, trying `mechanisms` in
-    /// order until one succeeds (or every one is rejected, which is an
-    /// [`ClientError::AuthFailed`]). Incoming method calls are dispatched
-    /// into `object_server`. Spawns a background task that reads and
-    /// demultiplexes messages for the lifetime of the connection.
     pub async fn connect_with(
         address: &Address,
         mechanisms: Vec<Mechanism>,
@@ -101,9 +82,6 @@ impl Connection {
                     Err(_) => break,
                 }
             }
-            // Connection dropped: fail every still-pending call rather than
-            // leaving callers hung forever waiting on a oneshot that will
-            // now never fire.
             task_pending.lock().unwrap().clear();
         });
 
@@ -121,42 +99,22 @@ impl Connection {
         })
     }
 
-    /// The [`ObjectServer`] that incoming method calls on this connection
-    /// are dispatched into.
     pub fn object_server(&self) -> &Arc<ObjectServer> {
         &self.inner.object_server
     }
 
-    /// The unique connection name assigned by the bus, once [`bus_hello`]
-    /// has completed. `None` before then, or on a peer-to-peer connection
-    /// with no bus daemon involved.
-    ///
-    /// [`bus_hello`]: Connection::bus_hello
     pub fn unique_name(&self) -> Option<String> {
         self.inner.unique_name.lock().unwrap().clone()
     }
 
-    /// Subscribes to signal messages received on this connection. Each
-    /// call returns an independent receiver; signals sent before
-    /// subscribing are not delivered, and a receiver that falls too far
-    /// behind will observe a `Lagged` error.
     pub fn subscribe_signals(&self) -> broadcast::Receiver<Message> {
         self.inner.signal_tx.subscribe()
     }
 
-    /// Every incoming message regardless of type. Only useful after
-    /// becoming a monitor (`Monitoring.BecomeMonitor`), which is what
-    /// makes the bus fan out non-signal traffic to this connection at all.
     pub fn subscribe_all_messages(&self) -> broadcast::Receiver<Message> {
         self.inner.raw_tx.subscribe()
     }
 
-    /// Sends a method call and awaits the matching reply. Returns the
-    /// reply body on `MethodReturn`, or [`ClientError::CallError`] if the
-    /// peer replied with an `Error` message. Fails with
-    /// [`ClientError::Io`] if the message can't be written, or
-    /// [`ClientError::Closed`] if the connection is dropped (its reader
-    /// task exits) before a reply arrives.
     pub async fn call_method(
         &self,
         destination: Option<&str>,
@@ -205,8 +163,6 @@ impl Connection {
         }
     }
 
-    /// Broadcasts a signal message; there is no reply to wait for. Fails
-    /// with [`ClientError::Io`] if the message can't be written.
     pub async fn emit_signal(
         &self,
         path: ObjectPath,
@@ -222,9 +178,6 @@ impl Connection {
         Ok(())
     }
 
-    /// Sends a pre-built message with the `NO_REPLY_EXPECTED` flag set,
-    /// without registering a pending-reply slot. Fails with
-    /// [`ClientError::Io`] if the message can't be written.
     pub async fn send_no_reply(&self, msg_builder: MessageBuilder) -> ClientResult<()> {
         let serial = self.inner.serials.next();
         let msg = msg_builder.no_reply_expected().build(serial);
@@ -232,8 +185,6 @@ impl Connection {
         Ok(())
     }
 
-    /// `org.freedesktop.DBus.Hello` — must be the first call on a
-    /// message-bus connection. Stores and returns the assigned unique name.
     pub async fn bus_hello(&self) -> ClientResult<String> {
         let reply = self
             .call_method(
@@ -253,11 +204,6 @@ impl Connection {
         Ok(name)
     }
 
-    /// `org.freedesktop.DBus.RequestName` — asks the bus to assign `name`
-    /// to this connection, subject to `flags` (allow-replacement,
-    /// replace-existing, do-not-queue). Returns the `RequestName` result
-    /// code (owner/in-queue/exists/already-owner); see the D-Bus spec for
-    /// the exact values.
     pub async fn request_name(&self, name: &str, flags: u32) -> ClientResult<u32> {
         let reply = self
             .call_method(
@@ -274,11 +220,6 @@ impl Connection {
             .ok_or_else(|| ClientError::Protocol("RequestName returned no result".into()))
     }
 
-    /// `org.freedesktop.DBus.AddMatch` — registers a match rule so the bus
-    /// starts routing matching signals (and, for eavesdrop rules, other
-    /// traffic) to this connection. Matching messages then arrive via
-    /// [`subscribe_signals`](Connection::subscribe_signals) or
-    /// [`subscribe_all_messages`](Connection::subscribe_all_messages).
     pub async fn add_match(&self, rule: &str) -> ClientResult<()> {
         self.call_method(
             Some(well_known::BUS_NAME),
@@ -324,7 +265,7 @@ async fn handshake(
         transport.write_line(l).await?;
     }
     if expect_reply {
-        transport.read_line().await?; // discard AGREE_UNIX_FD
+        transport.read_line().await?;
     }
     Ok(())
 }
@@ -349,11 +290,6 @@ async fn handle_incoming(
             let _ = signal_tx.send(msg);
         }
         MessageType::MethodCall => {
-            // In monitor mode (`Monitoring.BecomeMonitor`) the bus fans out
-            // traffic addressed to OTHER connections too; only actually
-            // dispatch-and-reply for calls genuinely addressed to us. A
-            // message with no DESTINATION at all means a direct peer-to-peer
-            // connection (no bus involved) — always ours in that case.
             let is_for_us = match msg.destination() {
                 None => true,
                 Some(dest) => unique_name.lock().unwrap().as_deref() == Some(dest),
@@ -478,7 +414,6 @@ mod tests {
             object_server.register(&ObjectPath::new("/echo").unwrap(), Arc::new(Echo));
 
             let mut transport = Transport::new(stream).unwrap();
-            // Minimal server-side EXTERNAL auth for this direct test.
             transport.read_initial_nul().await.unwrap();
             loop {
                 let line = transport.read_line().await.unwrap();

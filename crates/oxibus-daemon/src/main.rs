@@ -1,6 +1,4 @@
-//! `oxibus-daemon` — the OxiBus message bus. Drop-in successor to
-//! `dbus-daemon` for Zainium OS: same wire protocol and socket paths (see
-//! `oxibus.toml`'s `[paths]`), TOML policy/activation instead of XML.
+// oxibus-daemon main entry point.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -15,22 +13,15 @@ use tokio::net::UnixListener;
 #[derive(Parser, Debug)]
 #[command(name = "oxibus-daemon", about = "OxiBus message bus daemon")]
 struct Args {
-    /// Run as the system bus (listens on paths.system_socket +
-    /// paths.legacy_system_socket for libdbus-1.so compatibility).
     #[arg(long, conflicts_with = "session")]
     system: bool,
 
-    /// Run as a session bus (listens on an ephemeral unix:tmpdir= socket).
     #[arg(long, conflicts_with = "system")]
     session: bool,
 
-    /// Explicit oxibus.toml path (defaults to the candidates in
-    /// oxibus-config: /etc/oxibus/oxibus.toml, /etc/oxibus.toml, ./oxibus.toml).
     #[arg(long)]
     config: Option<PathBuf>,
 
-    /// Print the address(es) this daemon ends up listening on to stdout
-    /// once ready (one per line), then continue running.
     #[arg(long)]
     print_address: bool,
 }
@@ -88,9 +79,6 @@ async fn main() -> anyhow::Result<()> {
         }
         tracing::info!("listening on {printed}");
         if let oxibus_core::Address::UnixPath(p) = &bound.effective_address {
-            // Access control is enforced by SASL identity + bus policy, not
-            // filesystem bits — matches real dbus-daemon's world-writable
-            // socket file.
             let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o666));
             bound_socket_paths.push(PathBuf::from(p));
         }
@@ -114,13 +102,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Drop from root to `user` (setgroups/initgroups → setgid → setuid), the
-/// same shape as real `dbus-daemon`'s `<user>` config directive. No-op
-/// (with a debug log) if we're not currently root — e.g. under a
-/// supervisor that already starts us unprivileged, or the session bus,
-/// which never calls this at all.
 fn drop_privileges(user: &str) -> std::io::Result<()> {
-    // SAFETY: getuid() has no preconditions.
     if unsafe { libc::getuid() } != 0 {
         tracing::debug!("not running as root — skipping privilege drop");
         return Ok(());
@@ -128,8 +110,6 @@ fn drop_privileges(user: &str) -> std::io::Result<()> {
 
     let cname = std::ffi::CString::new(user)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "user name has embedded NUL"))?;
-    // SAFETY: getpwnam's returned pointer is copied out immediately; no
-    // other libc passwd/group call happens while `pw` is still borrowed.
     let (uid, gid) = unsafe {
         let pw = libc::getpwnam(cname.as_ptr());
         if pw.is_null() {
@@ -141,10 +121,6 @@ fn drop_privileges(user: &str) -> std::io::Result<()> {
         ((*pw).pw_uid, (*pw).pw_gid)
     };
 
-    // SAFETY: cname is a valid NUL-terminated C string for this call;
-    // initgroups/setgid/setuid are standard privilege-drop syscalls, done
-    // in the correct order (groups and gid before uid, since dropping uid
-    // first would remove the capability to change them).
     unsafe {
         if libc::initgroups(cname.as_ptr(), gid) != 0 {
             return Err(std::io::Error::last_os_error());
@@ -155,9 +131,6 @@ fn drop_privileges(user: &str) -> std::io::Result<()> {
         if libc::setuid(uid) != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        // Verify the drop actually took (setuid silently no-ops in some
-        // exotic sandboxed environments) — fail loudly rather than run on
-        // as root while believing we dropped privileges.
         if libc::getuid() != uid || libc::geteuid() != uid {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -263,7 +236,6 @@ fn write_pid_file(bus: &Bus) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    // SAFETY: getpid() has no preconditions.
     let pid = unsafe { libc::getpid() };
     if let Err(e) = std::fs::write(&path, pid.to_string()) {
         tracing::warn!("could not write pid file {}: {e}", path.display());

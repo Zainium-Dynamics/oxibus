@@ -1,26 +1,4 @@
-# =============================================================================
-# OxiBus monorepo — single workspace (Zainium Dynamics)
-# =============================================================================
-# Native, from-scratch Rust replacement for D-Bus (dbus-1.16.2).
-# Wire-protocol compatible with the D-Bus Specification 0.41, so every
-# existing libdbus-1.so / GDBus binary already in syshub keeps working
-# unmodified against oxibus-daemon.
-#
-# Layout:
-#   oxibus-config/    shared TOML config (paths, prefix — mirrors elevate.toml)
-#   oxibus-core/      wire protocol: types, signatures, marshaling, messages
-#   oxibus-transport/ unix socket transport, peer credentials, fd passing
-#   oxibus-auth/      SASL: EXTERNAL, ANONYMOUS, DBUS_COOKIE_SHA1
-#   oxibus-client/    connection, proxies, object server (the new libdbus)
-#   oxibus-daemon/    the bus itself: registry, driver, policy, activation
-#   oxibus-tools/     oxibus-send / oxibus-monitor / oxibus-launch / ...
-#
-# One config file: oxibus.toml (paths, features — same shape as elevate.toml)
-#
-# SPDX-License-Identifier: GPL-3.0-only
-# Copyright (c) 2026 Zainium Dynamics
-# Author: alizain <alizain@zainiumdynamics.tech>
-# Website: https://zainiumdynamics.tech
+# OxiBus Workspace Configuration
 
 [workspace]
 resolver = "2"

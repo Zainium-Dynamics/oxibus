@@ -1,51 +1,24 @@
-//! `AddMatch`/`RemoveMatch` rule parsing and matching (spec §Match Rules).
+// Match rule parsing and message filtering.
 
 use oxibus_core::header::MessageType;
 use oxibus_core::{errors, Message};
 
-/// A parsed `AddMatch` rule. Every field is an optional filter; a `None`/
-/// empty field imposes no constraint, so the default rule (all fields
-/// unset) matches everything.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MatchRule {
-    /// Restrict to this message type, if set.
     pub message_type: Option<MessageType>,
-    /// Restrict to this sender, matched either against the message's
-    /// unique-name sender directly or, if this is a well-known name,
-    /// against whoever currently owns it (see [`MatchRule::matches`]).
     pub sender: Option<String>,
-    /// Restrict to this interface.
     pub interface: Option<String>,
-    /// Restrict to this member (method/signal name).
     pub member: Option<String>,
-    /// Restrict to this exact object path.
     pub path: Option<String>,
-    /// Restrict to object paths within this namespace (spec's
-    /// `path_namespace=` prefix matching, mutually meaningful alongside but
-    /// distinct from `path`).
     pub path_namespace: Option<String>,
-    /// Restrict to this destination.
     pub destination: Option<String>,
-    /// `(argN index, expected string value)` pairs; every listed index must
-    /// match the message body's corresponding string argument. Index range
-    /// 0..=63 per the spec.
     pub args: Vec<(usize, String)>,
-    /// `(argN index, expected path value)` pairs for path prefix/subpath matching.
     pub arg_paths: Vec<(usize, String)>,
-    /// Expected namespace for the 0th argument (arg0namespace).
     pub arg0namespace: Option<String>,
-    /// Whether this rule opts the connection into eavesdropping (currently
-    /// parsed but not separately enforced beyond ordinary match delivery).
     pub eavesdrop: bool,
-    /// The raw rule string, used as the identity for `RemoveMatch` (spec:
-    /// removal matches the exact rule text previously added).
     pub raw: String,
 }
 
-/// Parse an `AddMatch`-style rule string (`key='value',key2='value2'`) into
-/// a [`MatchRule`]. Rejects unknown keys, malformed quoting, an out-of-range
-/// `argN` index, or an unrecognized `type=` value; the raw string is
-/// preserved on the returned rule for later `RemoveMatch` comparison.
 pub fn parse_match_rule(s: &str) -> Result<MatchRule, String> {
     let mut rule = MatchRule {
         raw: s.to_string(),
@@ -99,15 +72,11 @@ pub fn parse_match_rule(s: &str) -> Result<MatchRule, String> {
     Ok(rule)
 }
 
-/// Split `key='value',key2='value2'` honoring the spec's quoting rule: a
-/// literal `'` inside a value is written as closing the quote, `\'`, then
-/// reopening (`'don'\''t'`).
 fn tokenize(s: &str) -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        // key
         let key_start = i;
         while i < bytes.len() && bytes[i] != b'=' {
             i += 1;
@@ -116,11 +85,11 @@ fn tokenize(s: &str) -> Result<Vec<(String, String)>, String> {
             return Err("match rule missing '=' after key".into());
         }
         let key = s[key_start..i].to_string();
-        i += 1; // skip '='
+        i += 1;
         if i >= bytes.len() || bytes[i] != b'\'' {
             return Err("match rule value must be single-quoted".into());
         }
-        i += 1; // skip opening quote
+        i += 1;
         let mut value = String::new();
         loop {
             if i >= bytes.len() {
@@ -128,11 +97,9 @@ fn tokenize(s: &str) -> Result<Vec<(String, String)>, String> {
             }
             if bytes[i] == b'\'' {
                 i += 1;
-                // Escaped literal quote: '\'' -> check for that pattern.
                 if i + 1 < bytes.len() && bytes[i] == b'\\' && bytes[i + 1] == b'\'' {
                     value.push('\'');
                     i += 2;
-                    // Expect a fresh opening quote to continue the value.
                     if i < bytes.len() && bytes[i] == b'\'' {
                         i += 1;
                         continue;
@@ -140,7 +107,7 @@ fn tokenize(s: &str) -> Result<Vec<(String, String)>, String> {
                         return Err("malformed escaped quote in match rule".into());
                     }
                 }
-                break; // end of value
+                break;
             }
             value.push(bytes[i] as char);
             i += 1;
@@ -154,10 +121,6 @@ fn tokenize(s: &str) -> Result<Vec<(String, String)>, String> {
 }
 
 impl MatchRule {
-    /// Does `msg` (with its now-authoritative bus-stamped `sender`) satisfy
-    /// this rule? `resolve_owner` looks up the current unique-name owner of
-    /// a well-known bus name, for matching a `sender=` rule expressed as a
-    /// well-known name against the connection's real unique name.
     pub fn matches(&self, msg: &Message, resolve_owner: impl Fn(&str) -> Option<String>) -> bool {
         if let Some(t) = self.message_type {
             if msg.message_type() != t {
@@ -235,9 +198,6 @@ fn value_as_str(msg: &Message, idx: usize) -> Option<&str> {
     msg.body.get(idx).and_then(|v| v.unwrap_variant().as_str())
 }
 
-/// Cheap size check for a raw match-rule string, independent of full
-/// parsing: rejects anything over 4096 bytes with
-/// [`oxibus_core::errors::MATCH_RULE_INVALID`].
 pub fn validate_rule_string(s: &str) -> Result<(), &'static str> {
     if s.len() > 4096 {
         return Err(errors::MATCH_RULE_INVALID);

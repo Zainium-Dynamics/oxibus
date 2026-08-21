@@ -1,6 +1,4 @@
-//! Server-side SASL state machine — mirrors the `server_state_*` /
-//! `handle_server_data_*_mech` functions in `dbus/dbus-auth.c`, minus the
-//! Windows/`SCM_CREDS` paths this Linux-only implementation doesn't need.
+// Server-side SASL state machine.
 
 use sha1::{Digest, Sha1};
 
@@ -30,29 +28,15 @@ enum State {
     },
 }
 
-/// Outcome of feeding one line to [`ServerAuth`], describing what the
-/// caller should send back or do next.
 #[derive(Debug)]
 pub enum ServerAction {
-    /// Send these lines (already framed with the correct command word),
-    /// each terminated with `\r\n` by the transport layer.
     Send(Vec<String>),
-    /// Client sent `BEGIN` — auth is over, switch the transport to framed
-    /// binary message I/O. Carries the now-authorized uid (`None` only for
-    /// `ANONYMOUS`).
     Begin {
-        /// Authenticated uid, or `None` if authentication was via
-        /// `ANONYMOUS` (no identity is asserted or checked).
         uid: Option<u32>,
     },
-    /// Too many failed attempts or a malformed command outside recovery —
-    /// close the connection.
     Disconnect(String),
 }
 
-/// Server-side SASL state machine for one connection: validates the
-/// client's chosen mechanism against `allowed_mechanisms` and the peer's
-/// real socket credentials, then reports the authenticated uid (if any).
 pub struct ServerAuth {
     peer: PeerCredentials,
     allowed_mechanisms: Vec<Mechanism>,
@@ -65,10 +49,6 @@ pub struct ServerAuth {
 }
 
 impl ServerAuth {
-    /// Start a fresh handshake for a connection from `peer`, accepting
-    /// only `allowed_mechanisms` (and `ANONYMOUS` only if
-    /// `allow_anonymous` is set). `guid_hex` is echoed back to the client
-    /// in the `OK` line once authenticated.
     pub fn new(
         peer: PeerCredentials,
         allowed_mechanisms: Vec<Mechanism>,
@@ -87,9 +67,6 @@ impl ServerAuth {
         }
     }
 
-    /// Whether the client and server agreed to switch to
-    /// `SCM_RIGHTS`-based unix-fd-passing framing
-    /// (`NEGOTIATE_UNIX_FD`/`AGREE_UNIX_FD`) during this handshake.
     pub fn unix_fd_negotiated(&self) -> bool {
         self.unix_fd_negotiated
     }
@@ -115,7 +92,6 @@ impl ServerAuth {
         ServerAction::Send(vec![format!("ERROR \"{msg}\"")])
     }
 
-    /// Feed one CRLF-stripped line from the client.
     pub fn feed_line(&mut self, line: &str) -> ServerAction {
         let (command, rest) = split_command(line);
         match &self.state {
@@ -157,10 +133,6 @@ impl ServerAuth {
                         self.dispatch_mechanism_data(mechanism, &data, true)
                     }
                     None => {
-                        // No initial response: ask for one via an empty
-                        // DATA challenge (matches
-                        // `handle_server_data_external_mech`'s "poke for
-                        // identity" path, generalized to every mechanism).
                         self.state = State::WaitingForData {
                             mechanism,
                             cookie: CookieState::default(),
@@ -223,8 +195,6 @@ impl ServerAuth {
     }
 
     fn handle_external(&mut self, data: &[u8], _already_asked_now: bool) -> ServerAction {
-        // EXTERNAL identity is the peer's uid as an ASCII decimal string
-        // (or empty, meaning "trust the socket credentials directly").
         let desired_uid: Option<u32> = if data.is_empty() {
             Some(self.peer.uid)
         } else {
@@ -239,9 +209,6 @@ impl ServerAuth {
     }
 
     fn handle_anonymous(&mut self) -> ServerAction {
-        // `data` is an optional human-readable trace string; content is
-        // not validated, only that it was present (already hex-decoded to
-        // valid bytes by the caller).
         self.ok(None)
     }
 
@@ -256,8 +223,6 @@ impl ServerAuth {
     }
 
     fn cookie_sha1_first_response(&mut self, data: &[u8]) -> ServerAction {
-        // Only same-uid auth is supported (our keyring lives in our own
-        // $HOME; we must not read/write another user's home directory).
         let desired_uid: Option<u32> = if data.is_empty() {
             Some(self.peer.uid)
         } else {
@@ -436,8 +401,6 @@ mod tests {
         let home =
             std::env::temp_dir().join(format!("oxibus-auth-cookie-test-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
-        // SAFETY: test runs single-threaded w.r.t. this env var; no other
-        // test in this crate reads/writes HOME concurrently.
         unsafe {
             std::env::set_var("HOME", &home);
         }
@@ -449,7 +412,6 @@ mod tests {
             "guid1".into(),
         );
 
-        // client -> AUTH DBUS_COOKIE_SHA1 <hex uid>
         let hex_uid = hex::encode(my_uid.to_string());
         let first = server.feed_line(&format!("AUTH DBUS_COOKIE_SHA1 {hex_uid}"));
         let ServerAction::Send(lines) = first else {
@@ -464,7 +426,6 @@ mod tests {
         let server_challenge_hex = it.next().unwrap().to_string();
         assert_eq!(context, DEFAULT_CONTEXT);
 
-        // client reads its own keyring (same $HOME) to get the secret
         let keyring = Keyring::load(&home, DEFAULT_CONTEXT).unwrap();
         let cookie_hex = keyring.hex_key(cookie_id).unwrap();
 

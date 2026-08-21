@@ -1,5 +1,4 @@
-//! Connection registry and bus-name ownership table — the core mutable
-//! state of the bus, mirroring `bus/connection.c` + `bus/services.c`.
+// Registry tracking connection entries and name ownership tables.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -10,45 +9,26 @@ use oxibus_transport::{PeerCredentials, Writer};
 
 use crate::match_rules::MatchRule;
 
-/// Flag allowing a requested name to be replaced.
 pub const FLAG_ALLOW_REPLACEMENT: u32 = 0x1;
-/// Flag to replace an existing name owner.
 pub const FLAG_REPLACE_EXISTING: u32 = 0x2;
-/// Flag indicating the name request should not queue.
 pub const FLAG_DO_NOT_QUEUE: u32 = 0x4;
 
-/// RequestName reply: caller is now the primary owner.
 pub const REQUEST_REPLY_PRIMARY_OWNER: u32 = 1;
-/// RequestName reply: caller has been placed in the queue.
 pub const REQUEST_REPLY_IN_QUEUE: u32 = 2;
-/// RequestName reply: name is already owned and queueing disallowed.
 pub const REQUEST_REPLY_EXISTS: u32 = 3;
-/// RequestName reply: caller is already the owner of the name.
 pub const REQUEST_REPLY_ALREADY_OWNER: u32 = 4;
 
-/// ReleaseName reply: name has been successfully released.
 pub const RELEASE_REPLY_RELEASED: u32 = 1;
-/// ReleaseName reply: name does not exist.
 pub const RELEASE_REPLY_NON_EXISTENT: u32 = 2;
-/// ReleaseName reply: caller does not own the name.
 pub const RELEASE_REPLY_NOT_OWNER: u32 = 3;
 
-/// Entry representing an active client connection.
 pub struct ConnectionEntry {
-    /// Unique connection name assigned by the bus (e.g. `:1.42`).
     pub unique_name: String,
-    /// Message writer for this connection.
     pub writer: Writer,
-    /// Authenticated credentials of the peer.
     pub credentials: PeerCredentials,
-    /// Security/AppArmor label if enabled.
     pub security_label: Option<String>,
-    /// List of match rules registered by this connection.
     pub match_rules: RwLock<Vec<MatchRule>>,
-    /// Whether this connection is registered as a message monitor.
     pub is_monitor: AtomicBool,
-    /// Set once this connection has called `Hello`. Per spec, no other
-    /// message is routed for a connection until this is true.
     pub is_registered: AtomicBool,
 }
 
@@ -64,31 +44,21 @@ struct NameOwnership {
     queue: Vec<QueueEntry>,
 }
 
-/// Description of a name ownership change event.
 pub struct NameOwnerChange {
-    /// The well-known name that changed ownership.
     pub name: String,
-    /// The previous owner of the name, if any.
     pub old_owner: Option<String>,
-    /// The new owner of the name, if any.
     pub new_owner: Option<String>,
 }
 
-/// Thread-safe registry tracking all connection entries and name ownership.
 #[derive(Default)]
 pub struct Registry {
     connections: RwLock<HashMap<String, Arc<ConnectionEntry>>>,
     names: RwLock<HashMap<String, NameOwnership>>,
     next_id: AtomicU64,
-    /// Sockets accepted but not yet past the SASL handshake — tracked
-    /// separately from `connections` (which only gains an entry once
-    /// authenticated) so `limits.max_incomplete_connections` can bound the
-    /// half-open-connection DoS surface during auth.
     incomplete: std::sync::atomic::AtomicU32,
 }
 
 impl Registry {
-    /// Creates a new empty `Registry`.
     pub fn new() -> Self {
         Self {
             connections: RwLock::new(HashMap::new()),
@@ -98,8 +68,6 @@ impl Registry {
         }
     }
 
-    /// Try to reserve a slot for a not-yet-authenticated connection.
-    /// Returns `false` (reserving nothing) if `max` is already reached.
     pub fn try_begin_incomplete(&self, max: u32) -> bool {
         loop {
             let current = self.incomplete.load(Ordering::Relaxed);
@@ -116,17 +84,14 @@ impl Registry {
         }
     }
 
-    /// Decrements the counter of incomplete/half-open connections.
     pub fn end_incomplete(&self) {
         self.incomplete.fetch_sub(1, Ordering::Relaxed);
     }
 
-    /// Generates a new unique connection name.
     pub fn allocate_unique_name(&self) -> String {
         format!(":1.{}", self.next_id.fetch_add(1, Ordering::Relaxed))
     }
 
-    /// Registers a newly authenticated connection.
     pub fn add_connection(&self, entry: Arc<ConnectionEntry>) {
         self.connections
             .write()
@@ -134,22 +99,18 @@ impl Registry {
             .insert(entry.unique_name.clone(), entry);
     }
 
-    /// Looks up a connection entry by its unique name.
     pub fn get(&self, unique_name: &str) -> Option<Arc<ConnectionEntry>> {
         self.connections.read().unwrap().get(unique_name).cloned()
     }
 
-    /// Returns a list of all registered connections.
     pub fn all_connections(&self) -> Vec<Arc<ConnectionEntry>> {
         self.connections.read().unwrap().values().cloned().collect()
     }
 
-    /// Returns the current total count of registered connections.
     pub fn connection_count(&self) -> usize {
         self.connections.read().unwrap().len()
     }
 
-    /// Returns the count of registered connections owned by a specific UID.
     pub fn connection_count_for_uid(&self, uid: u32) -> usize {
         self.connections
             .read()
@@ -159,9 +120,6 @@ impl Registry {
             .count()
     }
 
-    /// Remove a connection and release every name it held or was queued
-    /// for, returning the resulting ownership-change events (for
-    /// `NameOwnerChanged`/`NameLost`/`NameAcquired` emission).
     pub fn remove_connection(&self, unique_name: &str) -> Vec<NameOwnerChange> {
         self.connections.write().unwrap().remove(unique_name);
 
@@ -180,7 +138,6 @@ impl Registry {
         events
     }
 
-    /// Lists all currently registered unique names and owned well-known names.
     pub fn list_names(&self) -> Vec<String> {
         let mut out: Vec<String> = self.connections.read().unwrap().keys().cloned().collect();
         out.extend(
@@ -194,12 +151,10 @@ impl Registry {
         out
     }
 
-    /// Returns true if the given well-known or unique name has an owner.
     pub fn name_has_owner(&self, name: &str) -> bool {
         self.get_name_owner(name).is_some()
     }
 
-    /// Returns the unique name of the primary owner of a well-known name.
     pub fn get_name_owner(&self, name: &str) -> Option<String> {
         if name.starts_with(':') {
             return self
@@ -217,8 +172,6 @@ impl Registry {
             .map(|e| e.unique_name.clone())
     }
 
-    /// How many names `unique_name` currently holds (owned or queued for) —
-    /// used to enforce `limits.max_names_per_connection`.
     pub fn names_held_by(&self, unique_name: &str) -> usize {
         self.names
             .read()
@@ -228,7 +181,6 @@ impl Registry {
             .count()
     }
 
-    /// Lists all connection unique names queued for a well-known name.
     pub fn list_queued_owners(&self, name: &str) -> Vec<String> {
         self.names
             .read()
@@ -238,8 +190,6 @@ impl Registry {
             .unwrap_or_default()
     }
 
-    /// `RequestName` — see `DBUS_REQUEST_NAME_REPLY_*` / `DBUS_NAME_FLAG_*`
-    /// in the D-Bus spec for the exact semantics this mirrors.
     pub fn request_name(
         &self,
         unique_name: &str,
@@ -312,7 +262,6 @@ impl Registry {
         )
     }
 
-    /// Releases ownership or queue slot of a well-known name for a connection.
     pub fn release_name(&self, unique_name: &str, name: &str) -> (u32, Vec<NameOwnerChange>) {
         let exists = self.names.read().unwrap().contains_key(name);
         if !exists {
@@ -364,7 +313,6 @@ impl Registry {
     }
 }
 
-/// Helper checking if the NO_REPLY_EXPECTED flag is set on a message.
 pub fn no_reply_expected(msg: &oxibus_core::Message) -> bool {
     msg.header.flags & msg_flags::NO_REPLY_EXPECTED != 0
 }
@@ -406,7 +354,7 @@ mod tests {
     #[test]
     fn replace_existing_requires_allow_replacement() {
         let reg = Registry::new();
-        reg.request_name(":1.1", "com.example.Foo", 0); // no ALLOW_REPLACEMENT
+        reg.request_name(":1.1", "com.example.Foo", 0);
         let (code, events) =
             reg.request_name(":1.2", "com.example.Foo", FLAG_REPLACE_EXISTING);
         assert_eq!(code, REQUEST_REPLY_IN_QUEUE);
@@ -423,7 +371,6 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].old_owner.as_deref(), Some(":1.1"));
         assert_eq!(events[0].new_owner.as_deref(), Some(":1.2"));
-        // displaced owner falls back into the queue
         assert_eq!(
             reg.list_queued_owners("com.example.Foo"),
             vec![":1.2".to_string(), ":1.1".to_string()]
@@ -457,7 +404,7 @@ mod tests {
         let reg = Registry::new();
         reg.request_name(":1.1", "com.example.Foo", 0);
         reg.request_name(":1.1", "com.example.Bar", 0);
-        reg.request_name(":1.2", "com.example.Bar", 0); // queued, not owner
+        reg.request_name(":1.2", "com.example.Bar", 0);
         assert_eq!(reg.names_held_by(":1.1"), 2);
         assert_eq!(reg.names_held_by(":1.2"), 1);
         assert_eq!(reg.names_held_by(":1.3"), 0);

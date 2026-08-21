@@ -1,19 +1,15 @@
-//! Encoding [`Value`]s to the D-Bus wire format.
+// Encoding Value types to D-Bus wire format.
 
 use crate::error::{CoreError, CoreResult};
 use crate::types::{Value, MAX_ARRAY_LEN};
 
-/// Accumulates a byte buffer while encoding [`Value`]s in D-Bus wire format,
-/// tracking alignment as it goes.
+// Accumulates a byte buffer while encoding Values in D-Bus wire format.
 pub struct Marshaler {
-    /// The bytes written so far.
     pub buf: Vec<u8>,
-    /// Byte order to encode multi-byte values in (`true` = big-endian).
     pub big_endian: bool,
 }
 
 impl Marshaler {
-    /// Create an empty marshaler that encodes in the given byte order.
     pub fn new(big_endian: bool) -> Self {
         Self {
             buf: Vec::new(),
@@ -21,7 +17,6 @@ impl Marshaler {
         }
     }
 
-    /// Create an empty marshaler with `cap` bytes of pre-allocated buffer capacity.
     pub fn with_capacity(big_endian: bool, cap: usize) -> Self {
         Self {
             buf: Vec::with_capacity(cap),
@@ -29,12 +24,10 @@ impl Marshaler {
         }
     }
 
-    /// Current write position, i.e. the number of bytes written so far.
     pub fn pos(&self) -> usize {
         self.buf.len()
     }
 
-    /// Pad with zero bytes until `pos()` is a multiple of `n`.
     pub fn align(&mut self, n: usize) {
         let rem = self.buf.len() % n;
         if rem != 0 {
@@ -42,12 +35,10 @@ impl Marshaler {
         }
     }
 
-    /// Write a single byte with no alignment padding (bytes are already 1-aligned).
     pub fn write_u8(&mut self, v: u8) {
         self.buf.push(v);
     }
 
-    /// Align to 2 bytes, then write `v` in the marshaler's byte order.
     pub fn write_u16(&mut self, v: u16) {
         self.align(2);
         if self.big_endian {
@@ -57,12 +48,10 @@ impl Marshaler {
         }
     }
 
-    /// Align to 2 bytes, then write `v` in the marshaler's byte order (same wire format as `write_u16`).
     pub fn write_i16(&mut self, v: i16) {
         self.write_u16(v as u16);
     }
 
-    /// Align to 4 bytes, then write `v` in the marshaler's byte order.
     pub fn write_u32(&mut self, v: u32) {
         self.align(4);
         if self.big_endian {
@@ -72,12 +61,10 @@ impl Marshaler {
         }
     }
 
-    /// Align to 4 bytes, then write `v` in the marshaler's byte order (same wire format as `write_u32`).
     pub fn write_i32(&mut self, v: i32) {
         self.write_u32(v as u32);
     }
 
-    /// Align to 8 bytes, then write `v` in the marshaler's byte order.
     pub fn write_u64(&mut self, v: u64) {
         self.align(8);
         if self.big_endian {
@@ -87,19 +74,14 @@ impl Marshaler {
         }
     }
 
-    /// Align to 8 bytes, then write `v` in the marshaler's byte order (same wire format as `write_u64`).
     pub fn write_i64(&mut self, v: i64) {
         self.write_u64(v as u64);
     }
 
-    /// Align to 8 bytes, then write `v`'s IEEE-754 bit pattern as a u64.
     pub fn write_f64(&mut self, v: f64) {
         self.write_u64(v.to_bits());
     }
 
-    /// Patch a previously-written 4-byte-aligned u32 in place (used for
-    /// array/body length fields whose value isn't known until after the
-    /// payload is written).
     pub fn patch_u32(&mut self, at: usize, v: u32) {
         let bytes = if self.big_endian {
             v.to_be_bytes()
@@ -129,11 +111,6 @@ impl Marshaler {
         Ok(())
     }
 
-    /// Marshal a single [`Value`] of any type, including nested containers
-    /// (arrays, structs, dict entries, variants), applying the correct
-    /// per-type alignment as it recurses. Fails if a string contains an
-    /// embedded NUL, a signature is too long, or an array body exceeds the
-    /// spec's max length.
     pub fn write_value(&mut self, value: &Value) -> CoreResult<()> {
         match value {
             Value::Byte(v) => self.write_u8(*v),
@@ -152,7 +129,7 @@ impl Marshaler {
             Value::Array(arr) => {
                 self.align(4);
                 let len_pos = self.pos();
-                self.write_u32(0); // placeholder
+                self.write_u32(0);
                 self.align(arr.element_type.alignment());
                 let start = self.pos();
                 for el in &arr.elements {
@@ -184,8 +161,6 @@ impl Marshaler {
         Ok(())
     }
 
-    /// Marshal a top-level sequence of values (e.g. a message body), each
-    /// value being one complete type in the overall signature.
     pub fn write_values(&mut self, values: &[Value]) -> CoreResult<()> {
         for v in values {
             self.write_value(v)?;
@@ -193,14 +168,11 @@ impl Marshaler {
         Ok(())
     }
 
-    /// Consume the marshaler and return the accumulated bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.buf
     }
 }
 
-/// Convenience: marshal a slice of values into fresh bytes and return the
-/// concatenated signature string alongside.
 pub fn marshal_body(values: &[Value], big_endian: bool) -> CoreResult<(Vec<u8>, String)> {
     let mut m = Marshaler::new(big_endian);
     m.write_values(values)?;
@@ -229,7 +201,6 @@ mod tests {
     fn string_marshals_with_length_prefix_and_nul() {
         let mut m = Marshaler::new(false);
         m.write_value(&Value::String("hi".into())).unwrap();
-        // u32 len(2) + "hi" + NUL = 4 + 2 + 1 = 7
         assert_eq!(m.pos(), 7);
         assert_eq!(&m.buf[0..4], &2u32.to_le_bytes());
         assert_eq!(&m.buf[4..6], b"hi");
@@ -253,7 +224,6 @@ mod tests {
         let mut m = Marshaler::new(false);
         m.write_u8(1);
         m.write_value(&Value::Struct(vec![Value::Int32(7)])).unwrap();
-        // after 1 byte + align(8) => struct starts at 8, then i32 at 8..12
         assert_eq!(&m.buf[8..12], &7i32.to_le_bytes());
     }
 

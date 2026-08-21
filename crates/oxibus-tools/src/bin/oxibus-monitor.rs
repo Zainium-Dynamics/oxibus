@@ -1,5 +1,4 @@
-//! `oxibus-monitor` — become a bus monitor and print every message that
-//! crosses the bus (reimplementation of `dbus-monitor`).
+// OxiBus monitoring tool.
 
 use clap::Parser;
 use oxibus_client::{Connection, ObjectPath, Value};
@@ -16,7 +15,6 @@ struct Args {
     #[arg(long)]
     address: Option<String>,
 
-    /// Match rules, e.g. "type='signal'" (default: everything).
     rules: Vec<String>,
 }
 

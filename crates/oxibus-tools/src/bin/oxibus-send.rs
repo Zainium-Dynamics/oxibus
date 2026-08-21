@@ -1,5 +1,4 @@
-//! `oxibus-send` — send a method call or signal from the command line
-//! (reimplementation of `dbus-send`'s CLI surface).
+// Sends a method call or signal from the CLI.
 
 use clap::Parser;
 use oxibus_client::{Connection, ObjectPath};
@@ -22,11 +21,8 @@ struct Args {
     #[arg(long)]
     print_reply: bool,
 
-    /// Object path, e.g. /org/freedesktop/DBus
     object_path: String,
-    /// interface.Member, e.g. org.freedesktop.DBus.ListNames
     interface_member: String,
-    /// Zero or more type:value arguments (string:foo, int32:5, ...)
     typed_args: Vec<String>,
 }
 

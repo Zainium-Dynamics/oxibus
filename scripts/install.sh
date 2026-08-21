@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# =============================================================================
-# OxiBus installer (Zainium — no /usr)
-# =============================================================================
-# Same DESTROOT convention as elevate/scripts/install.sh and
-# dbus/build-zainium-dbus.sh: DESTROOT *is* the syshub tree (the overlay's
-# lower layer), so bin/lib land under it via the runtime prefix, and
-# etc/var seed content lands at the same relative paths the live overlay
-# mounts as real /etc, /var — never bake DESTROOT itself into a binary's
-# compiled-in defaults (see oxibus.toml's prefix vs DESTROOT comment).
-#
-# Usage:
-#   ./scripts/install.sh                          # DESTROOT=zairoot/overlayer/syshub
-#   DESTROOT=/path/to/overlayer/syshub ./scripts/install.sh
-#   ./scripts/install.sh --force-policy           # overwrite existing policy.d/00-default.toml
-#   ./scripts/install.sh --force-config           # overwrite existing oxibus.toml
-#   ./scripts/install.sh --skip-build             # use already-built target/release
-#   ./scripts/install.sh --quantra                # also install the Quantra service file
-# =============================================================================
+# OxiBus installer script for Zainium OS environment.
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,7 +17,7 @@ for arg in "$@"; do
     --skip-build) SKIP_BUILD=1 ;;
     --quantra) INSTALL_QUANTRA=1 ;;
     -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      echo "Usage: $0 [--force-policy] [--force-config] [--skip-build] [--quantra]"
       exit 0
       ;;
     *)
@@ -72,15 +56,10 @@ for bin in oxibus-daemon oxibus-send oxibus-monitor oxibus-launch oxibus-uuidgen
   if [[ -f "$rel/$bin" ]]; then
     install -D -m 0755 "$rel/$bin" "$BINDIR/$bin"
   else
-    warn "missing $rel/$bin (build failed or --skip-build without a prior build?)"
+    warn "missing $rel/$bin"
   fi
 done
 
-# oxibus-daemon-launch-helper is installed but deliberately left mode 0755
-# owner-you here — it only becomes the privileged setuid-root helper once
-# you run the chown/chmod block this script prints at the end. Never
-# auto-applied: that's a root-owned, security-sensitive change this script
-# should not silently perform.
 if [[ -f "$rel/oxibus-daemon-launch-helper" ]]; then
   helper_dst="${DESTROOT}${LAUNCH_HELPER_PATH:-/libexec/oxibus-daemon-launch-helper}"
   install -D -m 0755 "$rel/oxibus-daemon-launch-helper" "$helper_dst"
@@ -113,19 +92,11 @@ echo "  DESTROOT: ${DESTROOT}"
 echo "  bins:     $BINDIR"
 echo "  config:   $ETCDIR/oxibus/oxibus.toml"
 echo "  policy:   $ETCDIR/oxibus/policy.d/"
-echo "  services: $ETCDIR/oxibus/services/  (drop activation *.toml files here)"
+echo "  services: $ETCDIR/oxibus/services/"
 if [[ "$INSTALL_QUANTRA" -eq 1 ]]; then
   echo "  quantra:  $QUANTRA_SERVICES_DIR/oxibus.toml"
-else
-  echo "  quantra:  not installed (pass --quantra to enable oxibus at boot)"
 fi
 echo ""
-echo "REQUIRED — activate the setuid launch helper (root-owned dirs, not done above):"
+echo "Activate setuid launch helper:"
 echo "  sudo chown root:messagebus ${helper_dst:-${DESTROOT}/libexec/oxibus-daemon-launch-helper}"
 echo "  sudo chmod 4750 ${helper_dst:-${DESTROOT}/libexec/oxibus-daemon-launch-helper}"
-echo "  # Without this, system-bus activation of any service with a user= other"
-echo "  # than messagebus fails closed (see oxibus-daemon-launch-helper's docs)."
-echo ""
-echo "Verify:"
-echo "  ${BINDIR}/oxibus-daemon --session --print-address &"
-echo "  ${BINDIR}/oxibus-send --session /org/freedesktop/DBus org.freedesktop.DBus.ListNames --print-reply"

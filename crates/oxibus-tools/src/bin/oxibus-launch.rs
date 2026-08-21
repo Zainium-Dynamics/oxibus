@@ -1,6 +1,4 @@
-//! `oxibus-launch` — start a session `oxibus-daemon` and print its address
-//! (and optionally exec a command with the address exported), matching the
-//! shape of `dbus-launch`.
+// Starts a session daemon and exports/prints its bus address.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -52,7 +50,6 @@ fn main() -> anyhow::Result<()> {
     if command.is_empty() {
         println!("OXIBUS_SESSION_BUS_ADDRESS='{address}'; export OXIBUS_SESSION_BUS_ADDRESS;");
         println!("OXIBUS_SESSION_BUS_PID={pid};");
-        // Detach: leave the daemon running for the caller's shell to use.
         std::mem::forget(child);
         return Ok(());
     }

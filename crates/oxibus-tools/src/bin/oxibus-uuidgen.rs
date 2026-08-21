@@ -1,5 +1,4 @@
-//! `oxibus-uuidgen` — reimplementation of `dbus-uuidgen`'s CLI:
-//! `[--ensure[=FILENAME]] [--get[=FILENAME]] [--version] [--help]`.
+// OxiBus machine-id UUID generator utility.
 
 use std::path::PathBuf;
 

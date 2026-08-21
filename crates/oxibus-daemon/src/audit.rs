@@ -1,8 +1,9 @@
+// Audit subsystem integration for kernel AVC logging.
+
 use std::ffi::CString;
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
 
-/// User space AVC message type ID.
 pub const AUDIT_USER_AVC: i32 = 1107;
 
 struct AuditLib {
@@ -56,7 +57,6 @@ fn get_audit_lib() -> Option<&'static AuditLib> {
     }).as_ref()
 }
 
-/// Initialize the Audit subsystem.
 pub fn init() {
     if let Some(lib) = get_audit_lib() {
         let fd = unsafe { (lib.audit_open)() };
@@ -69,7 +69,6 @@ pub fn init() {
     }
 }
 
-/// Log an AVC message.
 pub fn log_avc(uid: u32, msg: &str) {
     if let Some(lib) = get_audit_lib() {
         if let Some(&fd) = AUDIT_FD.get() {
@@ -94,7 +93,6 @@ pub fn log_avc(uid: u32, msg: &str) {
     info!("AVC log (fallback): uid={} msg={}", uid, msg);
 }
 
-/// Shutdown the Audit subsystem.
 pub fn shutdown() {
     if let Some(lib) = get_audit_lib() {
         if let Some(&fd) = AUDIT_FD.get() {

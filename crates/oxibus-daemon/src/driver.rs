@@ -1,6 +1,4 @@
-//! `org.freedesktop.DBus` — the bus driver object every connection talks
-//! to for name management, introspection, and bus metadata. Mirrors
-//! `bus/driver.c`.
+// Implementation of org.freedesktop.DBus driver methods.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -12,14 +10,8 @@ use oxibus_core::{errors, Type, Value};
 use crate::bus::Bus;
 use crate::registry::{ConnectionEntry, NameOwnerChange};
 
-/// A D-Bus error reply produced by a driver method — the `(error name,
-/// message)` pair that gets written back as the `ERROR_NAME` header and
-/// sole string argument of the reply message.
 pub struct DriverError {
-    /// The D-Bus error name, e.g. `org.freedesktop.DBus.Error.InvalidArgs`
-    /// (see [`oxibus_core::errors`]).
     pub name: String,
-    /// Human-readable detail, sent as the error reply's single string arg.
     pub message: String,
 }
 
@@ -35,18 +27,10 @@ impl DriverError {
     }
 }
 
-/// The return-argument list a driver method produces on success, or the
-/// [`DriverError`] to send back instead.
 pub type DriverResult = Result<Vec<Value>, DriverError>;
 
-/// What a driver call produced, bundled with any bus-name ownership changes
-/// it caused — the caller ([`crate::dispatch::handle_driver_call`]) sends
-/// the reply/error and separately broadcasts the ownership-change signals.
 pub struct DriverOutcome {
-    /// The method's reply arguments, or the error to send instead.
     pub result: DriverResult,
-    /// `NameOwnerChanged`-worthy events this call produced (e.g. from
-    /// `RequestName`/`ReleaseName`/`Hello`), to be broadcast by the caller.
     pub name_owner_changes: Vec<NameOwnerChange>,
 }
 
@@ -92,10 +76,6 @@ fn validate_bus_name(name: &str, allow_unique: bool) -> Result<(), DriverError> 
     }
 }
 
-/// Dispatch a method call on the core `org.freedesktop.DBus` interface by
-/// member name. `Ping`/`Introspect`/`GetStats`/`BecomeMonitor` and the other
-/// side interfaces are handled separately by
-/// [`crate::dispatch::handle_side_interface`] before this is reached.
 pub async fn handle(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, member: &str, args: &[Value]) -> DriverOutcome {
     match member {
         "Hello" => handle_hello(caller),
@@ -123,7 +103,7 @@ pub async fn handle(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, member: &str,
         "GetConnectionCredentials" => handle_get_conn_credentials(bus, args),
         "GetId" => ok(vec![Value::string(bus.guid())], vec![]),
         "UpdateActivationEnvironment" => handle_update_activation_env(bus, args),
-        "ReloadConfig" => ok(vec![], vec![]), // reload happens via SIGHUP in main.rs
+        "ReloadConfig" => ok(vec![], vec![]),
         other => err(DriverError::new(
             errors::UNKNOWN_METHOD,
             format!("org.freedesktop.DBus has no method \"{other}\""),
@@ -260,11 +240,6 @@ async fn handle_start_service(bus: &Arc<Bus>, args: &[Value]) -> DriverOutcome {
     }
 }
 
-/// Spawn the activatable service for `name` (unless already pending) and
-/// poll the registry until it claims the name or the configured activation
-/// timeout elapses (matches `bus/activation.c`'s pending-activation model,
-/// simplified to polling rather than a waiter-list — the bus-facing
-/// behavior is identical: the caller blocks until success or timeout).
 pub(crate) async fn activate_and_wait(bus: &Arc<Bus>, name: &str) -> Result<(), crate::activation::ActivationError> {
     use crate::activation::SpawnStrategy;
     use crate::bus::BusKind;
@@ -377,11 +352,6 @@ fn handle_get_conn_credentials(bus: &Arc<Bus>, args: &[Value]) -> DriverOutcome 
 }
 
 fn handle_update_activation_env(bus: &Arc<Bus>, args: &[Value]) -> DriverOutcome {
-    // Matches bus/driver.c: once a servicehelper is in play (our system
-    // bus, once oxibus-daemon-launch-helper is installed), an unprivileged
-    // caller must never be able to inject environment into a setuid-
-    // launched service. Session bus activation has no privilege boundary
-    // to protect, so it stays allowed there.
     if bus.kind == crate::bus::BusKind::System {
         return err(DriverError::new(
             errors::ACCESS_DENIED,

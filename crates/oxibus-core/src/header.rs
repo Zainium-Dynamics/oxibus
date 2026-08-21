@@ -1,31 +1,22 @@
-//! The D-Bus message header: fixed prefix `yyyyuu` + variable header-fields
-//! array `a(yv)`.
+// D-Bus message header encoding and decoding.
 
 use crate::error::{CoreError, CoreResult};
 use crate::marshal::Marshaler;
 use crate::types::{ArrayValue, ObjectPath, Signature, Type, Value};
 use crate::unmarshal::Unmarshaler;
 
-/// The D-Bus wire protocol version implemented by this crate. Messages with
-/// a different `protocol_version` in the header are rejected.
 pub const PROTOCOL_VERSION: u8 = 1;
 
-/// The four message kinds distinguished by the header's `message_type` byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MessageType {
-    /// A method-call request; expects a `MethodReturn` or `Error` reply unless `NO_REPLY_EXPECTED` is set.
     MethodCall = 1,
-    /// A successful reply to a method call.
     MethodReturn = 2,
-    /// An error reply to a method call.
     Error = 3,
-    /// A broadcast signal with no expected reply.
     Signal = 4,
 }
 
 impl MessageType {
-    /// Decode a message type from its wire byte value; fails for any value outside 1..=4.
     pub fn from_u8(v: u8) -> CoreResult<Self> {
         Ok(match v {
             1 => MessageType::MethodCall,
@@ -42,37 +33,22 @@ impl MessageType {
     }
 }
 
-/// Bit flags for the header's single-byte `flags` field.
 pub mod flags {
-    /// The sender does not expect a `MethodReturn`/`Error` reply to this call.
     pub const NO_REPLY_EXPECTED: u8 = 0x1;
-    /// The bus must not auto-start a service to deliver this message.
     pub const NO_AUTO_START: u8 = 0x2;
-    /// The sender permits the bus/service to prompt the user for interactive authorization.
     pub const ALLOW_INTERACTIVE_AUTHORIZATION: u8 = 0x4;
 }
 
-/// A single entry of the header's variable-length fields array (`a(yv)`),
-/// decoded into its typed form based on the field code.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeaderField {
-    /// `PATH` (code 1): the object path the message is addressed to or sent from.
     Path(ObjectPath),
-    /// `INTERFACE` (code 2): the interface the member belongs to.
     Interface(String),
-    /// `MEMBER` (code 3): the method or signal name.
     Member(String),
-    /// `ERROR_NAME` (code 4): the error name, present on `Error` messages.
     ErrorName(String),
-    /// `REPLY_SERIAL` (code 5): the serial of the message this one replies to.
     ReplySerial(u32),
-    /// `DESTINATION` (code 6): the unique or well-known name of the intended recipient.
     Destination(String),
-    /// `SENDER` (code 7): the unique name of the connection that sent the message, set by the bus.
     Sender(String),
-    /// `SIGNATURE` (code 8): the type signature of the message body.
     Signature(Signature),
-    /// `UNIX_FDS` (code 9): the number of file descriptors accompanying the message out-of-band.
     UnixFds(u32),
 }
 
@@ -126,7 +102,7 @@ impl HeaderField {
                 Value::UInt32(v) => v,
                 _ => return Err(bad_field("UNIX_FDS")),
             }),
-            _ => return Ok(None), // unknown field codes are ignored per spec
+            _ => return Ok(None),
         };
         Ok(Some(field))
     }
@@ -146,82 +122,64 @@ fn bad_field(name: &'static str) -> CoreError {
     }
 }
 
-/// A fully decoded D-Bus message header: the fixed 16-byte prefix plus the
-/// variable-length fields array.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MessageHeader {
-    /// Byte order the message body and header fields array are encoded in (`true` = big-endian).
     pub big_endian: bool,
-    /// Which of the four message kinds this is.
     pub message_type: MessageType,
-    /// Bitwise-OR of the flags in [`flags`] (`NO_REPLY_EXPECTED`, `NO_AUTO_START`, `ALLOW_INTERACTIVE_AUTHORIZATION`).
     pub flags: u8,
-    /// Protocol version the message was encoded with; must equal [`PROTOCOL_VERSION`] to be accepted.
     pub protocol_version: u8,
-    /// Length in bytes of the message body that follows the header.
     pub body_length: u32,
-    /// Serial number of this message, unique per sending connection, used to correlate replies.
     pub serial: u32,
-    /// The decoded variable-length header fields (path, interface, member, etc).
     pub fields: Vec<HeaderField>,
 }
 
 impl MessageHeader {
-    /// Look up a header field by its raw wire code (see [`HeaderField`] variant docs for codes).
     pub fn field(&self, code: u8) -> Option<&HeaderField> {
         self.fields.iter().find(|f| f.code() == code)
     }
 
-    /// The `PATH` field, if present.
     pub fn path(&self) -> Option<&ObjectPath> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::Path(p) => Some(p),
             _ => None,
         })
     }
-    /// The `INTERFACE` field, if present.
     pub fn interface(&self) -> Option<&str> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::Interface(s) => Some(s.as_str()),
             _ => None,
         })
     }
-    /// The `MEMBER` field, if present.
     pub fn member(&self) -> Option<&str> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::Member(s) => Some(s.as_str()),
             _ => None,
         })
     }
-    /// The `ERROR_NAME` field, if present.
     pub fn error_name(&self) -> Option<&str> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::ErrorName(s) => Some(s.as_str()),
             _ => None,
         })
     }
-    /// The `REPLY_SERIAL` field, if present.
     pub fn reply_serial(&self) -> Option<u32> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::ReplySerial(v) => Some(*v),
             _ => None,
         })
     }
-    /// The `DESTINATION` field, if present.
     pub fn destination(&self) -> Option<&str> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::Destination(s) => Some(s.as_str()),
             _ => None,
         })
     }
-    /// The `SENDER` field, if present.
     pub fn sender(&self) -> Option<&str> {
         self.fields.iter().find_map(|f| match f {
             HeaderField::Sender(s) => Some(s.as_str()),
             _ => None,
         })
     }
-    /// The `SIGNATURE` field as a string, or `""` if absent (meaning an empty body).
     pub fn signature(&self) -> &str {
         self.fields
             .iter()
@@ -231,7 +189,6 @@ impl MessageHeader {
             })
             .unwrap_or("")
     }
-    /// The `UNIX_FDS` field, or 0 if absent (no file descriptors accompany this message).
     pub fn unix_fds(&self) -> u32 {
         self.fields
             .iter()
@@ -242,15 +199,11 @@ impl MessageHeader {
             .unwrap_or(0)
     }
 
-    /// Replace the `SENDER` field with `sender`, dropping any prior value. Used by the
-    /// bus daemon to stamp the sending connection's unique name onto outgoing messages.
     pub fn set_sender(&mut self, sender: String) {
         self.fields.retain(|f| !matches!(f, HeaderField::Sender(_)));
         self.fields.push(HeaderField::Sender(sender));
     }
 
-    /// Validate required-field presence per the message type (spec §Message
-    /// Format / Valid Messages).
     pub fn validate(&self) -> CoreResult<()> {
         match self.message_type {
             MessageType::MethodCall => {
@@ -289,8 +242,6 @@ impl MessageHeader {
         Ok(())
     }
 
-    /// Marshal the header (fixed prefix + fields array) into `m`, padding so the
-    /// following body starts on an 8-byte boundary as required by the spec.
     pub fn write(&self, m: &mut Marshaler) -> CoreResult<()> {
         m.write_u8(if self.big_endian { b'B' } else { b'l' });
         m.write_u8(self.message_type as u8);
@@ -309,13 +260,10 @@ impl MessageHeader {
             elements,
         );
         m.write_value(&Value::Array(arr))?;
-        // Header must end 8-byte aligned; body starts right after.
         m.align(8);
         Ok(())
     }
 
-    /// Parse just the fixed 16-byte prefix (does not consume the fields
-    /// array). Returns `(header_partial, header_fields_array_len)`.
     fn read_prefix(buf: &[u8]) -> CoreResult<(bool, MessageType, u8, u8, u32, u32, u32)> {
         if buf.len() < 16 {
             return Err(CoreError::UnexpectedEof {
@@ -349,9 +297,6 @@ impl MessageHeader {
         ))
     }
 
-    /// Given the start of a (possibly incomplete) message buffer, return the
-    /// total frame length (header + body) once it's determinable, so the
-    /// transport layer knows how many bytes to keep reading.
     pub fn peek_frame_len(buf: &[u8]) -> CoreResult<Option<usize>> {
         if buf.len() < 16 {
             return Ok(None);
@@ -362,8 +307,6 @@ impl MessageHeader {
         Ok(Some(header_len + body_length as usize))
     }
 
-    /// Parse a complete header (fixed prefix + fields array), returning the
-    /// header and the byte offset where the body begins.
     pub fn read(buf: &[u8]) -> CoreResult<(MessageHeader, usize)> {
         let (big_endian, message_type, msg_flags, protocol_version, body_length, serial, _) =
             Self::read_prefix(buf)?;

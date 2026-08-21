@@ -1,27 +1,15 @@
-//! Peer credentials for a connected `AF_UNIX` socket, via `SO_PEERCRED`
-//! (Linux — matches `_dbus_read_credentials_socket` in
-//! `dbus/dbus-sysdeps-unix.c`, minus the BSD/`SCM_CREDS` fallback paths
-//! Zainium doesn't need since it only targets Linux).
+// Peer credentials for a connected AF_UNIX socket via SO_PEERCRED.
 
 use std::io;
 use std::os::unix::io::RawFd;
 
-/// Identity of the process on the other end of a connected `AF_UNIX`
-/// socket, as reported by the kernel via `SO_PEERCRED`. This is the trust
-/// anchor for the `EXTERNAL` SASL mechanism and for authorization decisions
-/// elsewhere in the daemon — it cannot be spoofed by the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PeerCredentials {
-    /// Effective user ID of the peer process at connect time.
     pub uid: u32,
-    /// Effective group ID of the peer process at connect time.
     pub gid: u32,
-    /// Process ID of the peer, or 0 if the kernel could not determine it
-    /// (e.g. the peer's namespace is not visible to us).
     pub pid: i32,
 }
 
-/// Read `SO_PEERCRED` off a connected unix-domain socket fd.
 pub fn peer_credentials(fd: RawFd) -> io::Result<PeerCredentials> {
     let mut ucred = libc::ucred {
         pid: 0,
@@ -30,8 +18,6 @@ pub fn peer_credentials(fd: RawFd) -> io::Result<PeerCredentials> {
     };
     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
 
-    // SAFETY: fd is a valid, open socket fd owned by the caller for the
-    // duration of this call; ucred/len are correctly sized out-params.
     let rc = unsafe {
         libc::getsockopt(
             fd,
@@ -51,11 +37,9 @@ pub fn peer_credentials(fd: RawFd) -> io::Result<PeerCredentials> {
     })
 }
 
-/// Read `SO_PEERSEC` off a connected unix-domain socket fd.
 pub fn peer_security_label(fd: RawFd) -> Option<Vec<u8>> {
     let mut buf = vec![0u8; 1024];
     let mut len = buf.len() as libc::socklen_t;
-    // SAFETY: fd is a valid socket, getsockopt is standard call
     let rc = unsafe {
         libc::getsockopt(
             fd,
@@ -77,25 +61,15 @@ pub fn peer_security_label(fd: RawFd) -> Option<Vec<u8>> {
     None
 }
 
-/// Look up a process' Linux Security Module label (used by the EXTERNAL
-/// mechanism to carry `DBUS_CREDENTIAL_LINUX_SECURITY_LABEL`; matches
-/// `_dbus_read_local_process_label`). Best-effort: returns `None` if the
-/// LSM proc file isn't present/readable.
 pub fn security_label(pid: i32) -> Option<Vec<u8>> {
     std::fs::read(format!("/proc/{pid}/attr/current")).ok()
 }
 
-/// The uid this process runs as — used for `EXTERNAL`'s implicit "auth as
-/// myself" identity and for the DBUS_COOKIE_SHA1 same-user check.
 pub fn current_uid() -> u32 {
-    // SAFETY: getuid() has no preconditions.
     unsafe { libc::getuid() }
 }
 
-/// The process ID of this process — used alongside [`current_uid`] for the
-/// `EXTERNAL` mechanism's implicit "auth as myself" identity.
 pub fn current_pid() -> i32 {
-    // SAFETY: getpid() has no preconditions.
     unsafe { libc::getpid() }
 }
 

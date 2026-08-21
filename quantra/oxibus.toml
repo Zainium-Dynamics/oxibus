@@ -1,32 +1,8 @@
-# Zainium OS — Quantra service definition for the OxiBus system bus.
-# Install to: /overlayer/syshub/engine/services/oxibus.toml
-#
-# Runs in the foreground under Quantra's own supervision (no --fork,
-# notify_type = "simple") rather than double-fork daemonizing — Quantra
-# already tracks the child pid directly, so classic daemonization would
-# just be extra risk surface for no benefit.
-#
-# Quantra starts this as root (no `user =` below) because oxibus-daemon
-# needs root to bind /run/oxibus and then drops its OWN privileges to
-# `bus.system.user` (messagebus, from oxibus.toml) right after binding —
-# see main.rs::drop_privileges. Do not add `user = "messagebus"` here too;
-# that would make Quantra start it unprivileged and it would fail to bind.
-#
-# Activating a service that needs a user OTHER than messagebus is handled
-# by the setuid-root oxibus-daemon-launch-helper (see
-# crates/oxibus-daemon/src/launch_helper.rs + scripts/install.sh for the
-# required `chown root:messagebus` + `chmod 4750` on that binary).
-#
-# DELIBERATELY `no_new_privileges = false` below — Quantra's own default
-# for this field is `true`, and PR_SET_NO_NEW_PRIVS is inherited by every
-# descendant process. Left at the default, the kernel would silently
-# ignore the launch helper's setuid bit entirely (it'd run as messagebus
-# instead of root), and activation-as-a-different-user would fail every
-# time — loudly, via the helper's own euid check, but still broken. Same
-# reason real dbus.service doesn't set NoNewPrivileges=yes either.
+# Zainium OS Quantra service definition for OxiBus daemon.
+# Target: /overlayer/syshub/engine/services/oxibus.toml
 
 name        = "oxibus"
-description = "OxiBus message bus (system) — Zainium's D-Bus replacement"
+description = "OxiBus system message bus daemon"
 command     = "/overlayer/syshub/bin/oxibus-daemon"
 args        = ["--system"]
 
@@ -42,4 +18,5 @@ state_directory      = "oxibus"
 
 condition_path_exists = ["/overlayer/syshub/etc/oxibus/oxibus.toml"]
 
+# Required to preserve setuid-root operation on launch helper binaries
 no_new_privileges = false

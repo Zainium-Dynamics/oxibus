@@ -1,31 +1,18 @@
-//! Raw `sendmsg`/`recvmsg` with `SCM_RIGHTS` ancillary data, for passing
-//! `UNIX_FD` message arguments alongside the byte stream. Designed to be
-//! called from inside `tokio::net::UnixStream::try_io`, so these are plain
-//! non-blocking syscalls, not `async fn`s.
+// SCM_RIGHTS file descriptor passing.
 
 use std::io;
 use std::os::unix::io::RawFd;
 
-/// Max fds we'll accept in a single `recvmsg` call (matches the daemon's
-/// `max_message_unix_fds` default order of magnitude; a hard ceiling here
-/// stops a peer from making us allocate an unbounded cmsg buffer).
 pub const MAX_FDS_PER_CALL: usize = 1024;
 
 fn cmsg_space(n_fds: usize) -> usize {
-    // CMSG_SPACE(n * sizeof(int)) computed manually: alignment header +
-    // aligned payload, matching <sys/socket.h> macro semantics.
     let payload = n_fds * std::mem::size_of::<RawFd>();
     let align = std::mem::size_of::<usize>();
     let hdr = unsafe { libc::CMSG_SPACE(payload as u32) as usize };
-    // CMSG_SPACE already rounds up; align is unused but documents intent.
     let _ = align;
     hdr
 }
 
-/// Send `buf` on `fd`, attaching `fds` as `SCM_RIGHTS` ancillary data on the
-/// call (per spec, all fds for a message travel with the FIRST send() of
-/// that message's bytes — we always pass the whole message in one send, so
-/// that's automatically satisfied).
 pub fn send_with_fds(fd: RawFd, buf: &[u8], out_fds: &[RawFd]) -> io::Result<usize> {
     let mut iov = libc::iovec {
         iov_base: buf.as_ptr() as *mut libc::c_void,
@@ -38,8 +25,6 @@ pub fn send_with_fds(fd: RawFd, buf: &[u8], out_fds: &[RawFd]) -> io::Result<usi
     } else {
         let space = cmsg_space(out_fds.len());
         cmsg_buf = vec![0u8; space];
-        // SAFETY: cmsg_buf is `space` bytes, freshly zeroed, sized via
-        // CMSG_SPACE for exactly out_fds.len() ints.
         unsafe {
             let mut msg: libc::msghdr = std::mem::zeroed();
             msg.msg_control = cmsg_buf.as_mut_ptr() as *mut libc::c_void;
@@ -60,7 +45,6 @@ pub fn send_with_fds(fd: RawFd, buf: &[u8], out_fds: &[RawFd]) -> io::Result<usi
     msg.msg_control = cmsg_ptr;
     msg.msg_controllen = cmsg_len as _;
 
-    // SAFETY: msg is fully initialized above; fd is a valid open socket.
     let n = unsafe { libc::sendmsg(fd, &msg, libc::MSG_NOSIGNAL) };
     if n < 0 {
         Err(io::Error::last_os_error())
@@ -69,8 +53,6 @@ pub fn send_with_fds(fd: RawFd, buf: &[u8], out_fds: &[RawFd]) -> io::Result<usi
     }
 }
 
-/// Receive into `buf`, collecting any `SCM_RIGHTS` fds that arrived
-/// alongside this read into a fresh `Vec`.
 pub fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<RawFd>)> {
     let mut iov = libc::iovec {
         iov_base: buf.as_mut_ptr() as *mut libc::c_void,
@@ -85,8 +67,6 @@ pub fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<RawFd>
     msg.msg_control = cmsg_buf.as_mut_ptr() as *mut libc::c_void;
     msg.msg_controllen = space as _;
 
-    // SAFETY: msg is fully initialized above; fd is a valid open socket;
-    // cmsg_buf outlives the call and is large enough for MAX_FDS_PER_CALL.
     let n = unsafe { libc::recvmsg(fd, &mut msg, 0) };
     if n < 0 {
         return Err(io::Error::last_os_error());
@@ -94,8 +74,6 @@ pub fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<RawFd>
 
     let mut received_fds = Vec::new();
     if msg.msg_controllen > 0 {
-        // SAFETY: msg was populated by the kernel above; we only walk
-        // cmsg headers that fit within msg_controllen.
         unsafe {
             let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
             while !cmsg.is_null() {
@@ -115,9 +93,6 @@ pub fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<RawFd>
     }
 
     if msg.msg_flags & libc::MSG_CTRUNC != 0 {
-        // Ancillary data was truncated — close whatever we did get (they're
-        // unusable without the rest) and fail loudly rather than silently
-        // dropping fds a peer thinks it sent.
         for f in &received_fds {
             unsafe {
                 libc::close(*f);
@@ -146,7 +121,6 @@ mod tests {
         );
         let (a, b) = (fds[0], fds[1]);
 
-        // Pass stdin's fd as the payload fd purely as a stand-in valid fd.
         let dummy = std::io::stdin().as_raw_fd();
         let sent = send_with_fds(a, b"hi", &[dummy]).unwrap();
         assert_eq!(sent, 2);

@@ -1,7 +1,4 @@
-//! `oxibus-update-activation-environment` — push environment variables
-//! into the bus for future activated services to inherit (reimplements
-//! `dbus-update-activation-environment`'s core behavior; no `--systemd`
-//! import since Zainium doesn't run systemd).
+// Pushes environment variables into the bus for future activated services.
 
 use clap::Parser;
 use oxibus_client::{Connection, ObjectPath, Value};
@@ -21,8 +18,6 @@ struct Args {
     #[arg(long)]
     address: Option<String>,
 
-    /// Either NAME (copies the current process's value of NAME) or
-    /// NAME=VALUE (sets it explicitly).
     vars: Vec<String>,
 }
 

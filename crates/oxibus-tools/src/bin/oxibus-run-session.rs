@@ -1,7 +1,4 @@
-//! `oxibus-run-session` — run a command inside a fresh, private session
-//! bus that's torn down when the command exits (reimplementation of
-//! `dbus-run-session`; unlike `oxibus-launch`, this never outlives its
-//! command).
+// Runs a command inside a private session bus.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};

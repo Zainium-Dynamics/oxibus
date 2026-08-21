@@ -1,10 +1,4 @@
-//! Binding/connecting `AF_UNIX` listeners from an [`oxibus_core::Address`],
-//! including Linux abstract-namespace sockets and `unix:tmpdir=` ephemeral
-//! session-bus sockets (matches `_dbus_listen_unix_socket` in
-//! `dbus/dbus-sysdeps-unix.c`). Abstract sockets are built from raw
-//! `sockaddr_un` bytes ourselves rather than via
-//! `std::os::unix::net::SocketAddr::from_abstract_name`, which is still
-//! behind an unstable feature gate on some toolchains.
+// AF_UNIX listener and connection binding.
 
 use std::io;
 use std::os::unix::io::FromRawFd;
@@ -14,22 +8,11 @@ use oxibus_core::Address;
 use rand::Rng;
 use tokio::net::{UnixListener, UnixStream};
 
-/// A listening `AF_UNIX` socket together with the address clients should
-/// use to reach it.
 pub struct BoundListener {
-    /// The bound, listening socket, ready to `accept()` on.
     pub listener: UnixListener,
-    /// The concrete address clients should use to reach this listener
-    /// (differs from the requested one for `unix:tmpdir=`, which picks a
-    /// random file name).
     pub effective_address: Address,
 }
 
-/// Bind a listening socket for `addr`. For `unix:path=`, the parent
-/// directory is created (mode 0755) and any stale socket file at that path
-/// is removed first — safe because a stale path means either nothing is
-/// listening, or `bind()` immediately fails with `EADDRINUSE` and we find
-/// out right away.
 pub async fn bind(addr: &Address) -> io::Result<BoundListener> {
     match addr {
         Address::UnixPath(path) => {
@@ -69,7 +52,6 @@ pub async fn bind(addr: &Address) -> io::Result<BoundListener> {
     }
 }
 
-/// Connect a client socket to `addr`.
 pub async fn connect(addr: &Address) -> io::Result<UnixStream> {
     match addr {
         Address::UnixPath(path) => UnixStream::connect(path).await,
@@ -85,13 +67,10 @@ pub async fn connect(addr: &Address) -> io::Result<UnixStream> {
     }
 }
 
-/// Build the raw `sockaddr_un` for a Linux abstract-namespace name (first
-/// byte of the path field is NUL, distinguishing it from a filesystem path;
-/// the kernel matches on the following bytes exactly, no NUL terminator).
 fn build_abstract_sockaddr(name: &[u8]) -> io::Result<(libc::sockaddr_un, libc::socklen_t)> {
     let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
-    let max_len = addr.sun_path.len() - 1; // -1: leading NUL marker byte
+    let max_len = addr.sun_path.len() - 1;
     if name.len() > max_len {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -107,9 +86,6 @@ fn build_abstract_sockaddr(name: &[u8]) -> io::Result<(libc::sockaddr_un, libc::
 
 fn bind_abstract(name: &[u8]) -> io::Result<UnixListener> {
     let (sockaddr, len) = build_abstract_sockaddr(name)?;
-    // SAFETY: standard socket(2)/bind(2)/listen(2) sequence on a freshly
-    // created fd; fd is closed on every error path and otherwise handed
-    // off to UnixListener::from_std, which takes ownership.
     unsafe {
         let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK, 0);
         if fd < 0 {
@@ -132,10 +108,6 @@ fn bind_abstract(name: &[u8]) -> io::Result<UnixListener> {
 
 fn connect_abstract(name: &[u8]) -> io::Result<UnixStream> {
     let (sockaddr, len) = build_abstract_sockaddr(name)?;
-    // SAFETY: standard socket(2)/connect(2) on a freshly created
-    // non-blocking fd; connect() on a non-blocking AF_UNIX socket completes
-    // synchronously (unlike TCP, there's no handshake to await), so no
-    // EINPROGRESS handling is required.
     unsafe {
         let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK, 0);
         if fd < 0 {

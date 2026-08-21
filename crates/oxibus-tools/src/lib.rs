@@ -1,22 +1,13 @@
-#![allow(rustdoc::broken_intra_doc_links)]
-#![warn(missing_docs)]
-//! Shared helpers for the `oxibus-tools` binaries: bus-address discovery
-//! and simple `type:value` argument parsing (the `dbus-send` grammar).
+// Shared helpers for oxibus-tools CLI binaries.
 
 use oxibus_core::{ArrayValue, Type, Value};
 
-/// Which well-known bus a tool should connect to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BusChoice {
-    /// The system bus.
     System,
-    /// The per-user session bus.
     Session,
 }
 
-/// Resolve which address to connect to, mirroring libdbus' discovery order:
-/// an explicit `--address=`, then the well-known env var, then (system
-/// bus only) the configured default socket path.
 pub fn resolve_address(choice: BusChoice, explicit: Option<&str>) -> anyhow::Result<oxibus_core::Address> {
     if let Some(a) = explicit {
         return Ok(oxibus_core::Address::parse_one(a)?);
@@ -44,9 +35,6 @@ pub fn resolve_address(choice: BusChoice, explicit: Option<&str>) -> anyhow::Res
     }
 }
 
-/// Parse one `type:value` CLI argument (dbus-send's scalar grammar; arrays
-/// and containers aren't supported from the command line — build those
-/// programmatically against `oxibus-client` instead).
 pub fn parse_typed_arg(spec: &str) -> anyhow::Result<Value> {
     let (ty, val) = spec
         .split_once(':')
@@ -68,7 +56,6 @@ pub fn parse_typed_arg(spec: &str) -> anyhow::Result<Value> {
         "uint64" => Value::UInt64(val.parse()?),
         "double" => Value::Double(val.parse()?),
         "array" => {
-            // array:string:a,b,c — element type + comma-separated values.
             let (elem_ty, list) = val
                 .split_once(':')
                 .ok_or_else(|| anyhow::anyhow!("array needs an element type, e.g. array:string:a,b"))?;
@@ -92,8 +79,6 @@ pub fn parse_typed_arg(spec: &str) -> anyhow::Result<Value> {
     })
 }
 
-/// Render a `Value` as `dbus-send`/`dbus-monitor`-style human-readable text,
-/// e.g. `int32 42` or `array [string "a", string "b"]`.
 pub fn format_value(v: &Value) -> String {
     match v {
         Value::Byte(b) => format!("byte {b}"),

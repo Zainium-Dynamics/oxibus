@@ -1,6 +1,4 @@
-//! Message routing: driver calls, point-to-point delivery, signal
-//! broadcast, on-demand activation, and policy enforcement. Mirrors
-//! `bus/dispatch.c` + the routing half of `bus/driver.c`.
+// Message routing, driver call handling, and policy enforcement.
 
 use std::sync::Arc;
 
@@ -14,14 +12,9 @@ use crate::identity;
 use crate::policy::Identity as PolicyIdentity;
 use crate::registry::{ConnectionEntry, NameOwnerChange};
 
-/// Entry point for every message read off a connection: stamps the bus's
-/// own idea of `sender` onto it (a peer's claimed sender is never
-/// trusted), fans it out to monitors, rejects anything but `Hello` from a
-/// not-yet-registered connection, then routes it by message type to signal
-/// broadcast, method-call dispatch, or reply delivery.
 pub async fn dispatch_incoming(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, mut msg: Message) {
     msg.set_sender(sender.unique_name.clone());
-    let msg = msg; // no longer mutated
+    let msg = msg;
 
     deliver_to_monitors(bus, &msg);
 
@@ -109,9 +102,6 @@ async fn dispatch_signal(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: Mes
 
 async fn broadcast_signal(bus: &Arc<Bus>, msg: &Message, enforce_policy: bool) {
     for conn in bus.registry.all_connections() {
-        // Monitors already received a raw, unfiltered copy of every
-        // message via `deliver_to_monitors` at the top of
-        // `dispatch_incoming` — match-rule delivery would double it up.
         if conn.is_monitor.load(std::sync::atomic::Ordering::Relaxed) {
             continue;
         }
@@ -329,10 +319,6 @@ async fn handle_driver_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: 
     finish_driver_reply(bus, sender, &msg, outcome).await;
 }
 
-/// `org.freedesktop.DBus.Peer`, `.Introspectable`, and `.Monitoring` all
-/// live at the same bus object path as the core driver interface but are
-/// logically separate interfaces (spec §Standard Interfaces). Returns
-/// `None` to fall through to the core `org.freedesktop.DBus` driver.
 fn handle_side_interface(
     bus: &Arc<Bus>,
     sender: &Arc<ConnectionEntry>,
@@ -522,10 +508,6 @@ async fn finish_driver_reply(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg:
     let _ = sender.writer.write_message(&out).await;
 }
 
-/// Emit the standard `org.freedesktop.DBus` signal trio for each ownership
-/// change: a broadcast `NameOwnerChanged` to every matching subscriber, plus
-/// a unicast `NameAcquired` to the new owner and/or `NameLost` to the old
-/// owner when either side is present.
 pub async fn broadcast_name_owner_changes(bus: &Arc<Bus>, changes: Vec<NameOwnerChange>) {
     for change in changes {
         let signal = MessageBuilder::signal(

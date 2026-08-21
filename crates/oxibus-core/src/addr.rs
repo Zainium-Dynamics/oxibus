@@ -1,30 +1,19 @@
-//! D-Bus server address strings, e.g.
-//! `unix:path=/run/oxibus/system_bus_socket` or `unix:tmpdir=/tmp`.
-//! A full address is a `;`-separated list of these (tried in order).
+// D-Bus server address parsing (unix:path=..., tcp:host=..., etc.).
 
 use crate::error::{CoreError, CoreResult};
 
-/// A single parsed D-Bus server address (one entry of a `;`-separated address list).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Address {
-    /// `unix:path=...` — connect to a Unix domain socket bound to a filesystem path.
     UnixPath(String),
-    /// `unix:abstract=...` — connect to a Unix domain socket in the Linux abstract namespace.
     UnixAbstract(String),
-    /// `unix:tmpdir=...` — a directory in which the server creates a socket with a random name.
     UnixTmpdir(String),
-    /// `tcp:host=...,port=...` — connect over TCP (unencrypted, for testing/non-Unix use).
     Tcp {
-        /// Hostname or IP address to connect to; defaults to `localhost` if unspecified.
         host: String,
-        /// TCP port to connect to.
         port: u16,
     },
 }
 
 impl Address {
-    /// Parse a full `;`-separated address string into an ordered list of candidates,
-    /// skipping empty entries. Per spec, clients try each entry in order until one connects.
     pub fn parse_list(s: &str) -> CoreResult<Vec<Address>> {
         s.split(';')
             .filter(|part| !part.is_empty())
@@ -32,7 +21,6 @@ impl Address {
             .collect()
     }
 
-    /// Parse a single `transport:key=value,...` address entry.
     pub fn parse_one(s: &str) -> CoreResult<Address> {
         let (transport, rest) = s
             .split_once(':')
@@ -65,8 +53,6 @@ impl Address {
         }
     }
 
-    /// Render back to the wire address-string form, percent-escaping unsafe bytes
-    /// in path/name components so the result round-trips through `parse_one`.
     pub fn to_address_string(&self) -> String {
         match self {
             Address::UnixPath(p) => format!("unix:path={}", escape(p)),
@@ -91,7 +77,6 @@ fn parse_kv(rest: &str) -> CoreResult<std::collections::HashMap<String, String>>
     Ok(map)
 }
 
-/// Percent-decode per the D-Bus address escaping rules.
 fn unescape(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());

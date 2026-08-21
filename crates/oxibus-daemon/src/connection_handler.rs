@@ -1,6 +1,4 @@
-//! Per-connection lifecycle: SASL server handshake, registration into the
-//! bus registry, the read loop that feeds [`crate::dispatch`], and cleanup
-//! on disconnect.
+// Connection lifecycle, SASL handshake, registration, and dispatch loop.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
@@ -14,9 +12,6 @@ use crate::bus::Bus;
 use crate::dispatch;
 use crate::registry::ConnectionEntry;
 
-/// Releases the `Registry`'s incomplete-connection slot on every exit path
-/// (auth failure, timeout, or successful handshake) without repeating the
-/// bookkeeping call at each `return`.
 struct IncompleteGuard<'a>(&'a Bus);
 impl Drop for IncompleteGuard<'_> {
     fn drop(&mut self) {
@@ -24,12 +19,6 @@ impl Drop for IncompleteGuard<'_> {
     }
 }
 
-/// Owns one accepted connection end-to-end: enforces the incomplete- and
-/// per-uid connection limits, runs the SASL handshake, registers a
-/// [`ConnectionEntry`], then loops reading and dispatching messages until
-/// the peer disconnects or a read fails — at which point it releases the
-/// connection's names and broadcasts the resulting `NameOwnerChanged`/
-/// `NameLost` signals.
 pub async fn handle_connection(bus: Arc<Bus>, stream: UnixStream) {
     let max_incomplete = bus.config.limits.max_incomplete_connections;
     if !bus.registry.try_begin_incomplete(max_incomplete) {
@@ -110,11 +99,6 @@ pub async fn handle_connection(bus: Arc<Bus>, stream: UnixStream) {
     tracing::info!("connection {unique_name} disconnected");
 }
 
-/// Runs the leading-NUL + SASL command loop up through `BEGIN`. Returns
-/// `Err(reason)` on protocol violations or explicit rejection past the
-/// configured failure limit; the caller (or the surrounding
-/// `tokio::time::timeout`) is responsible for closing the socket either way
-/// by simply dropping `transport`.
 async fn run_sasl_handshake(bus: &Arc<Bus>, transport: &mut Transport) -> Result<(), String> {
     transport
         .read_initial_nul()
