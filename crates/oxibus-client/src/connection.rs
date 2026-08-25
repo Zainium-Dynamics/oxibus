@@ -10,7 +10,8 @@ use oxibus_auth::{ClientAction, ClientAuth, Mechanism};
 use oxibus_core::header::MessageType;
 use oxibus_core::message::reply_to;
 use oxibus_core::{
-    Address, Message, MessageBuilder, ObjectPath, SerialGenerator, Value, well_known,
+    Address, ArrayValue, Message, MessageBuilder, ObjectPath, SerialGenerator, Type, Value,
+    well_known,
 };
 use oxibus_transport::{Transport, Writer};
 
@@ -181,6 +182,44 @@ impl Connection {
             .build(serial);
         self.inner.writer.write_message(&msg).await?;
         Ok(())
+    }
+
+    /// Emits `org.freedesktop.DBus.Properties.PropertiesChanged` for
+    /// `interface` at `path` — the signal every reactive desktop status
+    /// UI (battery, network, volume, media player, ...) polls for
+    /// instead of re-querying. Was possible before via `emit_signal`
+    /// with a hand-built `a{sv}`/`as` pair; this just saves doing that
+    /// by hand every time.
+    pub async fn properties_changed(
+        &self,
+        path: ObjectPath,
+        interface: &str,
+        changed: Vec<(String, Value)>,
+        invalidated: Vec<String>,
+    ) -> ClientResult<()> {
+        let changed_dict = Value::Array(ArrayValue::new(
+            Type::DictEntry(Box::new(Type::String), Box::new(Type::Variant)),
+            changed
+                .into_iter()
+                .map(|(name, value)| {
+                    Value::DictEntry(
+                        Box::new(Value::string(name)),
+                        Box::new(Value::Variant(Box::new(value))),
+                    )
+                })
+                .collect(),
+        ));
+        let invalidated_arr = Value::Array(ArrayValue::new(
+            Type::String,
+            invalidated.into_iter().map(Value::string).collect(),
+        ));
+        self.emit_signal(
+            path,
+            "org.freedesktop.DBus.Properties",
+            "PropertiesChanged",
+            vec![Value::string(interface), changed_dict, invalidated_arr],
+        )
+        .await
     }
 
     pub async fn send_no_reply(&self, msg_builder: MessageBuilder) -> ClientResult<()> {
@@ -468,6 +507,76 @@ mod tests {
 
         drop(client);
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), server_task).await;
+        std::fs::remove_file(&sock).ok();
+    }
+
+    #[tokio::test]
+    async fn properties_changed_round_trips_correctly() {
+        let dir = std::env::temp_dir().join(format!("oxibus-propchg-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("propchg.sock");
+        let addr = Address::UnixPath(sock.display().to_string());
+
+        let bound = oxibus_transport::bind(&addr).await.unwrap();
+        let server_task = tokio::spawn(async move {
+            let (stream, _peer) = bound.listener.accept().await.unwrap();
+            let mut transport = Transport::new(stream).unwrap();
+            transport.read_initial_nul().await.unwrap();
+            loop {
+                let line = transport.read_line().await.unwrap();
+                if line.strip_prefix("AUTH EXTERNAL ").is_some() {
+                    transport.write_line("OK 0000").await.unwrap();
+                    break;
+                }
+            }
+            let mut line = transport.read_line().await.unwrap();
+            if line == "NEGOTIATE_UNIX_FD" {
+                transport.write_line("AGREE_UNIX_FD").await.unwrap();
+                line = transport.read_line().await.unwrap();
+            }
+            assert_eq!(line, "BEGIN");
+
+            // the actual signal, nothing else - grab it directly rather
+            // than going through the full driver/dispatch machinery.
+            transport.read_message().await.unwrap()
+        });
+
+        let client = Connection::connect(&addr).await.unwrap();
+        client
+            .properties_changed(
+                ObjectPath::new("/org/example/Battery").unwrap(),
+                "org.freedesktop.UPower.Device",
+                vec![("Percentage".to_string(), Value::Double(42.0))],
+                vec!["IconName".to_string()],
+            )
+            .await
+            .unwrap();
+
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(2), server_task)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            msg.header.interface().unwrap(),
+            "org.freedesktop.DBus.Properties"
+        );
+        assert_eq!(msg.header.member().unwrap(), "PropertiesChanged");
+        assert_eq!(msg.body[0], Value::string("org.freedesktop.UPower.Device"));
+        let Value::Array(changed) = &msg.body[1] else {
+            panic!("expected a{{sv}}, got {:?}", msg.body[1]);
+        };
+        assert_eq!(changed.elements.len(), 1);
+        let Value::DictEntry(k, v) = &changed.elements[0] else {
+            panic!("expected dict entry");
+        };
+        assert_eq!(**k, Value::string("Percentage"));
+        assert_eq!(**v, Value::Variant(Box::new(Value::Double(42.0))));
+        let Value::Array(invalidated) = &msg.body[2] else {
+            panic!("expected as, got {:?}", msg.body[2]);
+        };
+        assert_eq!(invalidated.elements, vec![Value::string("IconName")]);
+
         std::fs::remove_file(&sock).ok();
     }
 }

@@ -69,6 +69,45 @@ pub trait Interface: Send + Sync {
     fn list_properties(&self) -> Vec<(String, Value)> {
         Vec::new()
     }
+
+    /// `<property>` tags for everything `list_properties()` reports,
+    /// with the type signature inferred from each `Value` itself. Access
+    /// is always `readwrite` — `list_properties()` alone can't say which
+    /// properties `set_property` actually accepts, and claiming
+    /// read-only for a writable one is the worse of the two wrong
+    /// guesses. Splice this into `introspection_xml()`'s own
+    /// `<interface>` block, or just don't write any `<property>` tags
+    /// there yourself and let [`ObjectServer::introspect`] append this
+    /// automatically (see its doc).
+    fn properties_xml(&self) -> String {
+        let mut xml = String::new();
+        for (name, value) in self.list_properties() {
+            let sig = value.value_type().to_signature_string();
+            xml.push_str(&format!(
+                "<property name=\"{name}\" type=\"{sig}\" access=\"readwrite\"/>"
+            ));
+        }
+        xml
+    }
+}
+
+/// Inserts `properties_xml` right before `iface_xml`'s closing
+/// `</interface>`. No-op if `iface_xml` already has its own
+/// `<property` tags (manual wins over automatic) or if there's nothing
+/// to add.
+fn splice_properties(iface_xml: &str, properties_xml: &str) -> String {
+    if properties_xml.is_empty() || iface_xml.contains("<property") {
+        return iface_xml.to_string();
+    }
+    match iface_xml.rfind("</interface>") {
+        Some(idx) => format!(
+            "{}{}{}",
+            &iface_xml[..idx],
+            properties_xml,
+            &iface_xml[idx..]
+        ),
+        None => iface_xml.to_string(),
+    }
 }
 
 // path -> (interface name -> handler)
@@ -148,6 +187,10 @@ impl ObjectServer {
         target.call(member, args).await
     }
 
+    /// Full introspection XML for `path`: each registered interface's
+    /// `introspection_xml()`, with `<property>` tags auto-appended from
+    /// `list_properties()` if the interface didn't already write its
+    /// own, plus `<node>` entries for child paths.
     pub fn introspect(&self, path: &str) -> String {
         let objects = self.objects.read().unwrap();
         let mut xml = String::new();
@@ -159,7 +202,10 @@ impl ObjectServer {
 
         if let Some(ifaces) = objects.get(path) {
             for iface in ifaces.values() {
-                xml.push_str(&iface.introspection_xml());
+                xml.push_str(&splice_properties(
+                    &iface.introspection_xml(),
+                    &iface.properties_xml(),
+                ));
                 xml.push('\n');
             }
         }
@@ -187,5 +233,68 @@ impl ObjectServer {
 
         xml.push_str("</node>\n");
         xml
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct WithProperties;
+    impl Interface for WithProperties {
+        fn name(&self) -> &str {
+            "com.example.Battery"
+        }
+        fn introspection_xml(&self) -> String {
+            "<interface name=\"com.example.Battery\"><method name=\"Refresh\"/></interface>".into()
+        }
+        fn call<'a>(&'a self, member: &'a str, _args: &'a [Value]) -> BoxFuture<'a, MethodResult> {
+            Box::pin(async move { Err(MethodError::unknown_method(member, self.name())) })
+        }
+        fn list_properties(&self) -> Vec<(String, Value)> {
+            vec![("Percentage".to_string(), Value::Double(42.0))]
+        }
+    }
+
+    struct ManualProperties;
+    impl Interface for ManualProperties {
+        fn name(&self) -> &str {
+            "com.example.Manual"
+        }
+        fn introspection_xml(&self) -> String {
+            "<interface name=\"com.example.Manual\"><property name=\"Hand\" type=\"s\" access=\"read\"/></interface>".into()
+        }
+        fn call<'a>(&'a self, member: &'a str, _args: &'a [Value]) -> BoxFuture<'a, MethodResult> {
+            Box::pin(async move { Err(MethodError::unknown_method(member, self.name())) })
+        }
+        fn list_properties(&self) -> Vec<(String, Value)> {
+            vec![("ShouldNotAppear".to_string(), Value::Boolean(true))]
+        }
+    }
+
+    #[test]
+    fn introspect_auto_appends_properties_when_none_written() {
+        let os = ObjectServer::new();
+        os.register(
+            &ObjectPath::new("/battery").unwrap(),
+            Arc::new(WithProperties),
+        );
+        let xml = os.introspect("/battery");
+        assert!(xml.contains("<method name=\"Refresh\"/>"));
+        assert!(xml.contains("<property name=\"Percentage\" type=\"d\" access=\"readwrite\"/>"));
+        // spliced before the interface's own closing tag, not appended after it
+        assert!(xml.find("<property").unwrap() < xml.find("</interface>").unwrap());
+    }
+
+    #[test]
+    fn introspect_leaves_manual_properties_alone() {
+        let os = ObjectServer::new();
+        os.register(
+            &ObjectPath::new("/manual").unwrap(),
+            Arc::new(ManualProperties),
+        );
+        let xml = os.introspect("/manual");
+        assert!(xml.contains("<property name=\"Hand\" type=\"s\" access=\"read\"/>"));
+        assert!(!xml.contains("ShouldNotAppear"));
     }
 }

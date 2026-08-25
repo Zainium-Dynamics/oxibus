@@ -19,4 +19,6 @@
 
 ### Client & Tools
 - [x] Client library (`Connection`, `Proxy`, `ObjectServer`)
+- [x] `PropertiesChanged` signal helper (`Connection::properties_changed`)
+- [x] `ObjectServer` auto-lists `list_properties()` in introspection XML
 - [x] CLI binaries (`oxibus-daemon`, `oxibus-send`, `oxibus-monitor`, `oxibus-launch`, `oxibus-uuidgen`, `oxibus-cleanup-sockets`, `oxibus-update-activation-environment`)
