@@ -3,7 +3,9 @@
 use std::path::PathBuf;
 
 fn default_machine_id_path() -> PathBuf {
-    oxibus_config::GlobalConfig::load_default().paths.machine_id_file()
+    oxibus_config::GlobalConfig::load_default()
+        .paths
+        .machine_id_file()
 }
 
 fn split_flag<'a>(arg: &'a str, name: &str) -> Option<Option<&'a str>> {
@@ -44,7 +46,9 @@ fn main() {
         }
     }
 
-    let path = filename.map(PathBuf::from).unwrap_or_else(default_machine_id_path);
+    let path = filename
+        .map(PathBuf::from)
+        .unwrap_or_else(default_machine_id_path);
 
     if get {
         match std::fs::read_to_string(&path) {

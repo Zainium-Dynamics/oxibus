@@ -27,7 +27,7 @@ impl MessageType {
                 return Err(CoreError::InvalidSignature(
                     other.to_string(),
                     "unknown message type",
-                ))
+                ));
             }
         })
     }
@@ -253,12 +253,14 @@ impl MessageHeader {
         let elements: Vec<Value> = self
             .fields
             .iter()
-            .map(|f| Value::Struct(vec![Value::Byte(f.code()), Value::Variant(Box::new(f.to_value()))]))
+            .map(|f| {
+                Value::Struct(vec![
+                    Value::Byte(f.code()),
+                    Value::Variant(Box::new(f.to_value())),
+                ])
+            })
             .collect();
-        let arr = ArrayValue::new(
-            Type::Struct(vec![Type::Byte, Type::Variant]),
-            elements,
-        );
+        let arr = ArrayValue::new(Type::Struct(vec![Type::Byte, Type::Variant]), elements);
         m.write_value(&Value::Array(arr))?;
         m.align(8);
         Ok(())

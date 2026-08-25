@@ -2,8 +2,8 @@
 
 use clap::Parser;
 use oxibus_client::{Connection, ObjectPath, Value};
-use oxibus_core::{well_known, ArrayValue, Type};
-use oxibus_tools::{resolve_address, BusChoice};
+use oxibus_core::{ArrayValue, Type, well_known};
+use oxibus_tools::{BusChoice, resolve_address};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -25,9 +25,15 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.vars.is_empty() {
-        anyhow::bail!("usage: oxibus-update-activation-environment [--system|--session] NAME[=VALUE]...");
+        anyhow::bail!(
+            "usage: oxibus-update-activation-environment [--system|--session] NAME[=VALUE]..."
+        );
     }
-    let choice = if args.system { BusChoice::System } else { BusChoice::Session };
+    let choice = if args.system {
+        BusChoice::System
+    } else {
+        BusChoice::Session
+    };
     let address = resolve_address(choice, args.address.as_deref())?;
 
     let mut entries = Vec::new();

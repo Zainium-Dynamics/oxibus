@@ -63,7 +63,10 @@ impl ActivationRegistry {
                             services.insert(f.service.name.clone(), f.service);
                         }
                         Err(e) => {
-                            tracing::warn!("skipping malformed service file {}: {e}", path.display());
+                            tracing::warn!(
+                                "skipping malformed service file {}: {e}",
+                                path.display()
+                            );
                         }
                     }
                 } else if ext == Some("service") {
@@ -72,11 +75,17 @@ impl ActivationRegistry {
                             if let Some(def) = parse_ini_service(&text) {
                                 services.insert(def.name.clone(), def);
                             } else {
-                                tracing::warn!("skipping malformed legacy service file {}", path.display());
+                                tracing::warn!(
+                                    "skipping malformed legacy service file {}",
+                                    path.display()
+                                );
                             }
                         }
                         Err(e) => {
-                            tracing::warn!("failed to read legacy service file {}: {e}", path.display());
+                            tracing::warn!(
+                                "failed to read legacy service file {}: {e}",
+                                path.display()
+                            );
                         }
                     }
                 }
@@ -181,26 +190,20 @@ fn parse_ini_service(content: &str) -> Option<ServiceDef> {
         }
         if line.starts_with('[') && line.ends_with(']') {
             let section = line[1..line.len() - 1].trim();
-            if section.eq_ignore_ascii_case("D-BUS Service") {
-                in_section = true;
-            } else {
-                in_section = false;
-            }
+            in_section = section.eq_ignore_ascii_case("D-BUS Service");
             continue;
         }
 
-        if in_section {
-            if let Some(pos) = line.find('=') {
-                let key = line[..pos].trim();
-                let val = line[pos + 1..].trim();
-                
-                if key.eq_ignore_ascii_case("Name") {
-                    name = Some(val.to_string());
-                } else if key.eq_ignore_ascii_case("Exec") {
-                    exec = Some(val.to_string());
-                } else if key.eq_ignore_ascii_case("User") {
-                    user = Some(val.to_string());
-                }
+        if in_section && let Some(pos) = line.find('=') {
+            let key = line[..pos].trim();
+            let val = line[pos + 1..].trim();
+
+            if key.eq_ignore_ascii_case("Name") {
+                name = Some(val.to_string());
+            } else if key.eq_ignore_ascii_case("Exec") {
+                exec = Some(val.to_string());
+            } else if key.eq_ignore_ascii_case("User") {
+                user = Some(val.to_string());
             }
         }
     }
@@ -208,11 +211,11 @@ fn parse_ini_service(content: &str) -> Option<ServiceDef> {
     let (name_str, exec_str) = (name?, exec?);
 
     let mut parts = Vec::new();
-    let mut chars = exec_str.chars().peekable();
+    let chars = exec_str.chars().peekable();
     let mut current = String::new();
     let mut in_quotes = false;
 
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c == '"' {
             in_quotes = !in_quotes;
         } else if c.is_whitespace() && !in_quotes {
@@ -249,7 +252,8 @@ mod tests {
 
     #[test]
     fn loads_and_looks_up_service_files() {
-        let dir = std::env::temp_dir().join(format!("oxibus-activation-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("oxibus-activation-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("com.example.Foo.toml"),
@@ -276,7 +280,7 @@ User=nobody
         assert!(reg.is_activatable("com.example.Foo"));
         assert!(reg.is_activatable("org.example.Bar"));
         assert!(!reg.is_activatable("com.example.Baz"));
-        
+
         let bar = reg.lookup("org.example.Bar").unwrap();
         assert_eq!(bar.name, "org.example.Bar");
         assert_eq!(bar.exec, "/bin/false");

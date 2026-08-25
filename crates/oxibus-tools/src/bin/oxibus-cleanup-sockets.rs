@@ -42,5 +42,8 @@ fn main() {
             Err(_) => {}
         }
     }
-    println!("oxibus-cleanup-sockets: removed {removed} stale socket(s) from {}", dir.display());
+    println!(
+        "oxibus-cleanup-sockets: removed {removed} stale socket(s) from {}",
+        dir.display()
+    );
 }

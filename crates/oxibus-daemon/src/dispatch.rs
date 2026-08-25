@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use oxibus_core::header::MessageType;
 use oxibus_core::message::reply_to;
-use oxibus_core::{errors, well_known, Message, MessageBuilder, ObjectPath, Value};
+use oxibus_core::{Message, MessageBuilder, ObjectPath, Value, errors, well_known};
 
 use crate::bus::Bus;
 use crate::driver;
@@ -18,7 +18,11 @@ pub async fn dispatch_incoming(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, mu
 
     deliver_to_monitors(bus, &msg);
 
-    if !sender.is_registered.load(std::sync::atomic::Ordering::SeqCst) && !is_hello_call(&msg) {
+    if !sender
+        .is_registered
+        .load(std::sync::atomic::Ordering::SeqCst)
+        && !is_hello_call(&msg)
+    {
         reply_error(
             bus,
             sender,
@@ -63,7 +67,12 @@ async fn dispatch_signal(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: Mes
         user_name: sender_identity_owned.user_name.as_deref(),
         group_names: &sender_identity_owned.group_names,
     };
-    if !bus.policy.read().unwrap().can_send(&sender_identity, &msg, msg.destination()) {
+    if !bus
+        .policy
+        .read()
+        .unwrap()
+        .can_send(&sender_identity, &msg, msg.destination())
+    {
         bus.stats.record_denial();
         return;
     }
@@ -88,11 +97,11 @@ async fn dispatch_signal(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: Mes
     }
 
     if let Some(dest) = msg.destination() {
-        if let Some(owner) = bus.registry.get_name_owner(dest) {
-            if let Some(conn) = bus.registry.get(&owner) {
-                let _ = conn.writer.write_message(&msg).await;
-                bus.stats.record_signal();
-            }
+        if let Some(owner) = bus.registry.get_name_owner(dest)
+            && let Some(conn) = bus.registry.get(&owner)
+        {
+            let _ = conn.writer.write_message(&msg).await;
+            bus.stats.record_signal();
         }
         return;
     }
@@ -110,7 +119,7 @@ async fn broadcast_signal(bus: &Arc<Bus>, msg: &Message, enforce_policy: bool) {
             continue;
         }
         let owner_lookup = |n: &str| bus.registry.get_name_owner(n);
-        let matched = rules.iter().any(|r| r.matches(msg, &owner_lookup));
+        let matched = rules.iter().any(|r| r.matches(msg, owner_lookup));
         if !matched {
             continue;
         }
@@ -121,7 +130,12 @@ async fn broadcast_signal(bus: &Arc<Bus>, msg: &Message, enforce_policy: bool) {
                 user_name: identity.user_name.as_deref(),
                 group_names: &identity.group_names,
             };
-            if !bus.policy.read().unwrap().can_receive(&policy_identity, msg, msg.sender()) {
+            if !bus
+                .policy
+                .read()
+                .unwrap()
+                .can_receive(&policy_identity, msg, msg.sender())
+            {
                 continue;
             }
 
@@ -133,7 +147,9 @@ async fn broadcast_signal(bus: &Arc<Bus>, msg: &Message, enforce_policy: bool) {
             if !crate::apparmor::check_permission(
                 crate::apparmor::AA_DBUS_RECEIVE,
                 conn.security_label.as_deref(),
-                sender_conn.as_ref().and_then(|c| c.security_label.as_deref()),
+                sender_conn
+                    .as_ref()
+                    .and_then(|c| c.security_label.as_deref()),
                 bustype,
                 msg.destination(),
                 msg.path().map(|p| p.as_str()),
@@ -153,17 +169,25 @@ async fn dispatch_reply(bus: &Arc<Bus>, msg: Message) {
     let Some(dest) = msg.destination() else {
         return;
     };
-    if let Some(owner) = bus.registry.get_name_owner(dest) {
-        if let Some(conn) = bus.registry.get(&owner) {
-            let _ = conn.writer.write_message(&msg).await;
-            bus.stats.record_routed(msg.to_bytes().map(|b| b.len() as u64).unwrap_or(0));
-        }
+    if let Some(owner) = bus.registry.get_name_owner(dest)
+        && let Some(conn) = bus.registry.get(&owner)
+    {
+        let _ = conn.writer.write_message(&msg).await;
+        bus.stats
+            .record_routed(msg.to_bytes().map(|b| b.len() as u64).unwrap_or(0));
     }
 }
 
 async fn dispatch_method_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: Message) {
     let Some(dest) = msg.destination() else {
-        reply_error(bus, sender, &msg, errors::BAD_ADDRESS, "Method call missing DESTINATION").await;
+        reply_error(
+            bus,
+            sender,
+            &msg,
+            errors::BAD_ADDRESS,
+            "Method call missing DESTINATION",
+        )
+        .await;
         return;
     };
 
@@ -178,7 +202,12 @@ async fn dispatch_method_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg
         user_name: sender_identity_owned.user_name.as_deref(),
         group_names: &sender_identity_owned.group_names,
     };
-    if !bus.policy.read().unwrap().can_send(&sender_identity, &msg, Some(dest)) {
+    if !bus
+        .policy
+        .read()
+        .unwrap()
+        .can_send(&sender_identity, &msg, Some(dest))
+    {
         bus.stats.record_denial();
         reply_error(
             bus,
@@ -195,7 +224,10 @@ async fn dispatch_method_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg
         crate::BusKind::System => "system",
         crate::BusKind::Session => "session",
     };
-    let dst_conn = bus.registry.get_name_owner(dest).and_then(|o| bus.registry.get(&o));
+    let dst_conn = bus
+        .registry
+        .get_name_owner(dest)
+        .and_then(|o| bus.registry.get(&o));
     if !crate::apparmor::check_permission(
         crate::apparmor::AA_DBUS_SEND,
         sender.security_label.as_deref(),
@@ -237,8 +269,14 @@ async fn dispatch_method_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg
                 Ok(()) => match bus.registry.get_name_owner(dest) {
                     Some(owner) => deliver_to_owner(bus, sender, &msg, &owner).await,
                     None => {
-                        reply_error(bus, sender, &msg, errors::SERVICE_UNKNOWN, "activation raced with removal")
-                            .await
+                        reply_error(
+                            bus,
+                            sender,
+                            &msg,
+                            errors::SERVICE_UNKNOWN,
+                            "activation raced with removal",
+                        )
+                        .await
                     }
                 },
                 Err(e) => {
@@ -249,7 +287,12 @@ async fn dispatch_method_call(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg
     }
 }
 
-async fn deliver_to_owner(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: &Message, owner: &str) {
+async fn deliver_to_owner(
+    bus: &Arc<Bus>,
+    sender: &Arc<ConnectionEntry>,
+    msg: &Message,
+    owner: &str,
+) {
     let Some(conn) = bus.registry.get(owner) else {
         reply_error(bus, sender, msg, errors::SERVICE_UNKNOWN, "owner vanished").await;
         return;
@@ -260,7 +303,12 @@ async fn deliver_to_owner(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: &M
         user_name: dest_identity_raw.user_name.as_deref(),
         group_names: &dest_identity_raw.group_names,
     };
-    if !bus.policy.read().unwrap().can_receive(&dest_identity, msg, msg.sender()) {
+    if !bus
+        .policy
+        .read()
+        .unwrap()
+        .can_receive(&dest_identity, msg, msg.sender())
+    {
         bus.stats.record_denial();
         reply_error(
             bus,
@@ -300,9 +348,18 @@ async fn deliver_to_owner(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: &M
         return;
     }
     match conn.writer.write_message(msg).await {
-        Ok(()) => bus.stats.record_routed(msg.to_bytes().map(|b| b.len() as u64).unwrap_or(0)),
+        Ok(()) => bus
+            .stats
+            .record_routed(msg.to_bytes().map(|b| b.len() as u64).unwrap_or(0)),
         Err(_) => {
-            reply_error(bus, sender, msg, errors::NO_REPLY, "destination connection is gone").await
+            reply_error(
+                bus,
+                sender,
+                msg,
+                errors::NO_REPLY,
+                "destination connection is gone",
+            )
+            .await
         }
     }
 }
@@ -330,7 +387,10 @@ fn handle_side_interface(
         Some(well_known::PEER_INTERFACE) => Some(match member {
             "Ping" => driver_ok(vec![]),
             "GetMachineId" => driver_ok(vec![Value::string(bus.guid())]),
-            other => driver_err(errors::UNKNOWN_METHOD, format!("Peer has no method \"{other}\"")),
+            other => driver_err(
+                errors::UNKNOWN_METHOD,
+                format!("Peer has no method \"{other}\""),
+            ),
         }),
         Some(well_known::INTROSPECTABLE_INTERFACE) => Some(match member {
             "Introspect" => driver_ok(vec![Value::string(driver_introspection_xml())]),
@@ -342,16 +402,26 @@ fn handle_side_interface(
         Some(well_known::STATS_INTERFACE) => Some(match member {
             "GetStats" => driver_ok(vec![stats_dict(bus)]),
             "GetConnectionStats" => match args.first().and_then(|v| v.as_str()) {
-                Some(name) => match bus.registry.get_name_owner(name).and_then(|o| bus.registry.get(&o)) {
+                Some(name) => match bus
+                    .registry
+                    .get_name_owner(name)
+                    .and_then(|o| bus.registry.get(&o))
+                {
                     Some(conn) => driver_ok(vec![connection_stats_dict(&conn)]),
                     None => driver_err(
                         errors::NAME_HAS_NO_OWNER,
                         format!("Could not get stats for '{name}': no such name"),
                     ),
                 },
-                None => driver_err(errors::INVALID_ARGS, "GetConnectionStats needs a connection name"),
+                None => driver_err(
+                    errors::INVALID_ARGS,
+                    "GetConnectionStats needs a connection name",
+                ),
             },
-            other => driver_err(errors::UNKNOWN_METHOD, format!("Debug.Stats has no method \"{other}\"")),
+            other => driver_err(
+                errors::UNKNOWN_METHOD,
+                format!("Debug.Stats has no method \"{other}\""),
+            ),
         }),
         Some(well_known::MONITORING_INTERFACE) => Some(match member {
             "BecomeMonitor" => {
@@ -372,7 +442,9 @@ fn handle_side_interface(
                 } else {
                     parsed
                 };
-                sender.is_monitor.store(true, std::sync::atomic::Ordering::Relaxed);
+                sender
+                    .is_monitor
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 driver_ok(vec![])
             }
             other => driver_err(
@@ -388,11 +460,36 @@ fn stats_dict(bus: &Arc<Bus>) -> Value {
     dict_of_u32(vec![
         ("BusNames", bus.registry.list_names().len() as u32),
         ("ActiveConnections", bus.registry.connection_count() as u32),
-        ("MessagesRouted", bus.stats.messages_routed.load(std::sync::atomic::Ordering::Relaxed) as u32),
-        ("BytesRouted", bus.stats.bytes_routed.load(std::sync::atomic::Ordering::Relaxed) as u32),
-        ("SignalsDelivered", bus.stats.signals_delivered.load(std::sync::atomic::Ordering::Relaxed) as u32),
-        ("ActivationsStarted", bus.stats.activations_started.load(std::sync::atomic::Ordering::Relaxed) as u32),
-        ("PolicyDenials", bus.stats.policy_denials.load(std::sync::atomic::Ordering::Relaxed) as u32),
+        (
+            "MessagesRouted",
+            bus.stats
+                .messages_routed
+                .load(std::sync::atomic::Ordering::Relaxed) as u32,
+        ),
+        (
+            "BytesRouted",
+            bus.stats
+                .bytes_routed
+                .load(std::sync::atomic::Ordering::Relaxed) as u32,
+        ),
+        (
+            "SignalsDelivered",
+            bus.stats
+                .signals_delivered
+                .load(std::sync::atomic::Ordering::Relaxed) as u32,
+        ),
+        (
+            "ActivationsStarted",
+            bus.stats
+                .activations_started
+                .load(std::sync::atomic::Ordering::Relaxed) as u32,
+        ),
+        (
+            "PolicyDenials",
+            bus.stats
+                .policy_denials
+                .load(std::sync::atomic::Ordering::Relaxed) as u32,
+        ),
         ("UptimeSeconds", bus.stats.uptime_secs() as u32),
     ])
 }
@@ -408,7 +505,10 @@ fn connection_stats_dict(conn: &ConnectionEntry) -> Value {
 fn dict_of_u32(entries: Vec<(&str, u32)>) -> Value {
     use oxibus_core::types::ArrayValue;
     Value::Array(ArrayValue::new(
-        oxibus_core::Type::DictEntry(Box::new(oxibus_core::Type::String), Box::new(oxibus_core::Type::Variant)),
+        oxibus_core::Type::DictEntry(
+            Box::new(oxibus_core::Type::String),
+            Box::new(oxibus_core::Type::Variant),
+        ),
         entries
             .into_iter()
             .map(|(k, v)| {
@@ -488,8 +588,12 @@ fn driver_introspection_xml() -> String {
     )
 }
 
-async fn finish_driver_reply(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg: &Message, outcome: driver::DriverOutcome) {
-
+async fn finish_driver_reply(
+    bus: &Arc<Bus>,
+    sender: &Arc<ConnectionEntry>,
+    msg: &Message,
+    outcome: driver::DriverOutcome,
+) {
     if !outcome.name_owner_changes.is_empty() {
         broadcast_name_owner_changes(bus, outcome.name_owner_changes).await;
     }
@@ -499,7 +603,9 @@ async fn finish_driver_reply(bus: &Arc<Bus>, sender: &Arc<ConnectionEntry>, msg:
     }
 
     let reply = match outcome.result {
-        Ok(values) => reply_to(msg, None).sender(well_known::BUS_NAME).args(values),
+        Ok(values) => reply_to(msg, None)
+            .sender(well_known::BUS_NAME)
+            .args(values),
         Err(e) => reply_to(msg, Some(&e.name))
             .sender(well_known::BUS_NAME)
             .arg(Value::string(e.message)),
@@ -523,7 +629,8 @@ pub async fn broadcast_name_owner_changes(bus: &Arc<Bus>, changes: Vec<NameOwner
         broadcast_signal(bus, &signal, false).await;
 
         if let Some(new_owner) = &change.new_owner {
-            send_unicast_driver_signal(bus, new_owner, well_known::NAME_ACQUIRED, &change.name).await;
+            send_unicast_driver_signal(bus, new_owner, well_known::NAME_ACQUIRED, &change.name)
+                .await;
         }
         if let Some(old_owner) = &change.old_owner {
             send_unicast_driver_signal(bus, old_owner, well_known::NAME_LOST, &change.name).await;
@@ -531,7 +638,12 @@ pub async fn broadcast_name_owner_changes(bus: &Arc<Bus>, changes: Vec<NameOwner
     }
 }
 
-async fn send_unicast_driver_signal(bus: &Arc<Bus>, to_unique_name: &str, member: &'static str, name: &str) {
+async fn send_unicast_driver_signal(
+    bus: &Arc<Bus>,
+    to_unique_name: &str,
+    member: &'static str,
+    name: &str,
+) {
     let Some(conn) = bus.registry.get(to_unique_name) else {
         return;
     };
@@ -591,7 +703,7 @@ mod tests {
         let transport = oxibus_transport::Transport::new(a).unwrap();
         let mut transport_recv = oxibus_transport::Transport::new(b).unwrap();
         let unique_name = bus.registry.allocate_unique_name();
-        
+
         let conn = Arc::new(crate::registry::ConnectionEntry {
             unique_name: unique_name.clone(),
             writer: transport.writer(),
@@ -601,7 +713,7 @@ mod tests {
             is_monitor: std::sync::atomic::AtomicBool::new(true),
             is_registered: std::sync::atomic::AtomicBool::new(true),
         });
-        
+
         bus.registry.add_connection(conn.clone());
 
         let serial = SerialGenerator::new();
@@ -630,7 +742,7 @@ mod tests {
             transport_recv.read_message(),
         )
         .await;
-        
+
         assert!(second.is_err(), "Monitor received a duplicate message!");
     }
 }

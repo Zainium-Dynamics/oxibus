@@ -1,7 +1,9 @@
 // Unmarshaling values from D-Bus wire bytes.
 
 use crate::error::{CoreError, CoreResult};
-use crate::types::{is_valid_object_path, ArrayValue, ObjectPath, Signature, Type, Value, MAX_ARRAY_LEN};
+use crate::types::{
+    ArrayValue, MAX_ARRAY_LEN, ObjectPath, Signature, Type, Value, is_valid_object_path,
+};
 
 pub struct Unmarshaler<'a> {
     pub buf: &'a [u8],

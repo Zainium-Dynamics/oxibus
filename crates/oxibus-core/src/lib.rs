@@ -11,8 +11,8 @@ pub mod unmarshal;
 
 pub use addr::Address;
 pub use error::{CoreError, CoreResult};
-pub use header::{flags, HeaderField, MessageHeader, MessageType, PROTOCOL_VERSION};
-pub use message::{reply_to, Message, MessageBuilder, SerialGenerator};
+pub use header::{HeaderField, MessageHeader, MessageType, PROTOCOL_VERSION, flags};
+pub use message::{Message, MessageBuilder, SerialGenerator, reply_to};
 pub use types::{ArrayValue, ObjectPath, Signature, Type, Value};
 
 // Well-known bus names, interfaces and object paths.

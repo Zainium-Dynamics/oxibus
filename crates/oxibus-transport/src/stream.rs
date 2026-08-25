@@ -9,7 +9,7 @@ use oxibus_core::message::Message;
 use tokio::io::Interest;
 use tokio::net::UnixStream;
 
-use crate::credentials::{peer_credentials, PeerCredentials};
+use crate::credentials::{PeerCredentials, peer_credentials};
 use crate::fds;
 
 const MAX_AUTH_LINE_BYTES: usize = 16 * 1024;
@@ -169,9 +169,7 @@ impl Transport {
             match MessageHeader::peek_frame_len(&self.read_buf) {
                 Ok(Some(len)) => break len,
                 Ok(None) => self.fill_more().await?,
-                Err(e) => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
-                }
+                Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
             }
         };
         if frame_len > self.max_message_size as usize {
@@ -239,8 +237,8 @@ mod tests {
         let mut tb = Transport::new(b).unwrap();
 
         let serial = SerialGenerator::new();
-        let msg = MessageBuilder::method_call(ObjectPath::new("/").unwrap(), "Ping")
-            .build(serial.next());
+        let msg =
+            MessageBuilder::method_call(ObjectPath::new("/").unwrap(), "Ping").build(serial.next());
         ta.write_message(&msg).await.unwrap();
 
         let got = tb.read_message().await.unwrap();
@@ -257,10 +255,7 @@ mod tests {
         tb.set_max_message_size(64);
 
         let serial = SerialGenerator::new();
-        let big_array = Value::Array(ArrayValue::new(
-            Type::Byte,
-            vec![Value::Byte(0); 200],
-        ));
+        let big_array = Value::Array(ArrayValue::new(Type::Byte, vec![Value::Byte(0); 200]));
         let msg = MessageBuilder::method_call(ObjectPath::new("/").unwrap(), "Ping")
             .arg(big_array)
             .build(serial.next());

@@ -1,11 +1,11 @@
 // Implementation of org.freedesktop.DBus driver methods.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use oxibus_core::types::ArrayValue;
-use oxibus_core::{errors, Type, Value};
+use oxibus_core::{Type, Value, errors};
 
 use crate::bus::Bus;
 use crate::registry::{ConnectionEntry, NameOwnerChange};
@@ -72,11 +72,18 @@ fn validate_bus_name(name: &str, allow_unique: bool) -> Result<(), DriverError> 
     if valid {
         Ok(())
     } else {
-        Err(DriverError::invalid_args(format!("invalid bus name '{name}'")))
+        Err(DriverError::invalid_args(format!(
+            "invalid bus name '{name}'"
+        )))
     }
 }
 
-pub async fn handle(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, member: &str, args: &[Value]) -> DriverOutcome {
+pub async fn handle(
+    bus: &Arc<Bus>,
+    caller: &Arc<ConnectionEntry>,
+    member: &str,
+    args: &[Value],
+) -> DriverOutcome {
     match member {
         "Hello" => handle_hello(caller),
         "RequestName" => handle_request_name(bus, caller, args),
@@ -87,12 +94,18 @@ pub async fn handle(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, member: &str,
             vec![],
         ),
         "NameHasOwner" => match args.first().and_then(|v| v.as_str()) {
-            Some(name) => ok(vec![Value::Boolean(bus.registry.name_has_owner(name))], vec![]),
+            Some(name) => ok(
+                vec![Value::Boolean(bus.registry.name_has_owner(name))],
+                vec![],
+            ),
             None => err(DriverError::invalid_args("NameHasOwner needs a name")),
         },
         "GetNameOwner" => handle_get_name_owner(bus, args),
         "ListQueuedOwners" => match arg_str(args, 0) {
-            Ok(name) => ok(vec![string_array(bus.registry.list_queued_owners(&name))], vec![]),
+            Ok(name) => ok(
+                vec![string_array(bus.registry.list_queued_owners(&name))],
+                vec![],
+            ),
             Err(e) => err(e),
         },
         "StartServiceByName" => handle_start_service(bus, args).await,
@@ -130,10 +143,17 @@ fn handle_hello(caller: &Arc<ConnectionEntry>) -> DriverOutcome {
         old_owner: None,
         new_owner: Some(caller.unique_name.clone()),
     };
-    ok(vec![Value::string(caller.unique_name.clone())], vec![change])
+    ok(
+        vec![Value::string(caller.unique_name.clone())],
+        vec![change],
+    )
 }
 
-fn handle_request_name(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, args: &[Value]) -> DriverOutcome {
+fn handle_request_name(
+    bus: &Arc<Bus>,
+    caller: &Arc<ConnectionEntry>,
+    args: &[Value],
+) -> DriverOutcome {
     let name = match arg_str(args, 0) {
         Ok(n) => n,
         Err(e) => return err(e),
@@ -194,7 +214,11 @@ fn handle_request_name(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, args: &[Va
     ok(vec![Value::UInt32(code)], changes)
 }
 
-fn handle_release_name(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, args: &[Value]) -> DriverOutcome {
+fn handle_release_name(
+    bus: &Arc<Bus>,
+    caller: &Arc<ConnectionEntry>,
+    args: &[Value],
+) -> DriverOutcome {
     let name = match arg_str(args, 0) {
         Ok(n) => n,
         Err(e) => return err(e),
@@ -240,7 +264,10 @@ async fn handle_start_service(bus: &Arc<Bus>, args: &[Value]) -> DriverOutcome {
     }
 }
 
-pub(crate) async fn activate_and_wait(bus: &Arc<Bus>, name: &str) -> Result<(), crate::activation::ActivationError> {
+pub(crate) async fn activate_and_wait(
+    bus: &Arc<Bus>,
+    name: &str,
+) -> Result<(), crate::activation::ActivationError> {
     use crate::activation::SpawnStrategy;
     use crate::bus::BusKind;
 
@@ -262,10 +289,16 @@ pub(crate) async fn activate_and_wait(bus: &Arc<Bus>, name: &str) -> Result<(), 
         }
         tokio::time::sleep(crate::activation::ActivationRegistry::DEFAULT_POLL_INTERVAL).await;
     }
-    Err(crate::activation::ActivationError::TimedOut(name.to_string()))
+    Err(crate::activation::ActivationError::TimedOut(
+        name.to_string(),
+    ))
 }
 
-fn handle_add_match(bus: &Arc<Bus>, caller: &Arc<ConnectionEntry>, args: &[Value]) -> DriverOutcome {
+fn handle_add_match(
+    bus: &Arc<Bus>,
+    caller: &Arc<ConnectionEntry>,
+    args: &[Value],
+) -> DriverOutcome {
     let rule_str = match arg_str(args, 0) {
         Ok(s) => s,
         Err(e) => return err(e),
@@ -363,10 +396,10 @@ fn handle_update_activation_env(bus: &Arc<Bus>, args: &[Value]) -> DriverOutcome
     };
     let mut env = bus.activation_environment.write().unwrap();
     for el in &arr.elements {
-        if let Value::DictEntry(k, v) = el {
-            if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
-                env.insert(key.to_string(), val.to_string());
-            }
+        if let Value::DictEntry(k, v) = el
+            && let (Some(key), Some(val)) = (k.as_str(), v.as_str())
+        {
+            env.insert(key.to_string(), val.to_string());
         }
     }
     ok(vec![], vec![])

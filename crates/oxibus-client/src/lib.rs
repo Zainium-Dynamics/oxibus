@@ -5,7 +5,7 @@ pub mod error;
 pub mod object_server;
 pub mod proxy;
 
-pub use connection::{default_mechanisms, Connection};
+pub use connection::{Connection, default_mechanisms};
 pub use error::{ClientError, ClientResult};
 pub use object_server::{BoxFuture, Interface, MethodError, MethodResult, ObjectServer};
 pub use proxy::Proxy;

@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use oxibus_client::{Connection, ObjectPath};
-use oxibus_tools::{format_value, parse_typed_arg, resolve_address, BusChoice};
+use oxibus_tools::{BusChoice, format_value, parse_typed_arg, resolve_address};
 
 #[derive(Parser, Debug)]
 #[command(name = "oxibus-send", about = "Send a message to an OxiBus bus")]
@@ -29,13 +29,16 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let choice = if args.system { BusChoice::System } else { BusChoice::Session };
+    let choice = if args.system {
+        BusChoice::System
+    } else {
+        BusChoice::Session
+    };
     let address = resolve_address(choice, args.address.as_deref())?;
 
-    let (interface, member) = args
-        .interface_member
-        .rsplit_once('.')
-        .ok_or_else(|| anyhow::anyhow!("expected INTERFACE.MEMBER, got '{}'", args.interface_member))?;
+    let (interface, member) = args.interface_member.rsplit_once('.').ok_or_else(|| {
+        anyhow::anyhow!("expected INTERFACE.MEMBER, got '{}'", args.interface_member)
+    })?;
 
     let path = ObjectPath::new(&args.object_path)?;
     let values: Vec<_> = args

@@ -17,6 +17,7 @@ struct CookieState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)] // "WaitingFor..." reads clearer than dropping the prefix here
 enum State {
     WaitingForAuth,
     WaitingForData {
@@ -31,9 +32,7 @@ enum State {
 #[derive(Debug)]
 pub enum ServerAction {
     Send(Vec<String>),
-    Begin {
-        uid: Option<u32>,
-    },
+    Begin { uid: Option<u32> },
     Disconnect(String),
 }
 

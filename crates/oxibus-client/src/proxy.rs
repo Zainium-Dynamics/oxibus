@@ -1,6 +1,6 @@
 // Proxy handle for remote object calls.
 
-use oxibus_core::{well_known, ObjectPath, Value};
+use oxibus_core::{ObjectPath, Value, well_known};
 
 use crate::connection::Connection;
 use crate::error::ClientResult;
@@ -57,7 +57,12 @@ impl Proxy {
             .unwrap_or(Value::String(String::new())))
     }
 
-    pub async fn set_property(&self, interface: &str, name: &str, value: Value) -> ClientResult<()> {
+    pub async fn set_property(
+        &self,
+        interface: &str,
+        name: &str,
+        value: Value,
+    ) -> ClientResult<()> {
         self.connection
             .call_method(
                 Some(&self.destination),
@@ -88,10 +93,10 @@ impl Proxy {
         let mut out = Vec::new();
         if let Some(Value::Array(arr)) = reply.into_iter().next() {
             for el in arr.elements {
-                if let Value::DictEntry(k, v) = el {
-                    if let Some(key) = k.as_str() {
-                        out.push((key.to_string(), v.unwrap_variant().clone()));
-                    }
+                if let Value::DictEntry(k, v) = el
+                    && let Some(key) = k.as_str()
+                {
+                    out.push((key.to_string(), v.unwrap_variant().clone()));
                 }
             }
         }

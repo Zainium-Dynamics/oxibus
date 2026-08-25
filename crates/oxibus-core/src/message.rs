@@ -4,7 +4,7 @@ use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::{CoreError, CoreResult};
-use crate::header::{flags, HeaderField, MessageHeader, MessageType};
+use crate::header::{HeaderField, MessageHeader, MessageType, flags};
 use crate::marshal::Marshaler;
 use crate::types::{ObjectPath, Signature, Value};
 
@@ -84,10 +84,14 @@ impl Message {
             .fields
             .retain(|f| !matches!(f, HeaderField::Signature(_) | HeaderField::UnixFds(_)));
         if !sig.is_empty() {
-            header.fields.push(HeaderField::Signature(Signature::new(sig)?));
+            header
+                .fields
+                .push(HeaderField::Signature(Signature::new(sig)?));
         }
         if !self.fds.is_empty() {
-            header.fields.push(HeaderField::UnixFds(self.fds.len() as u32));
+            header
+                .fields
+                .push(HeaderField::UnixFds(self.fds.len() as u32));
         }
         header.validate()?;
 
@@ -144,7 +148,11 @@ impl MessageBuilder {
         b
     }
 
-    pub fn signal(path: ObjectPath, interface: impl Into<String>, member: impl Into<String>) -> Self {
+    pub fn signal(
+        path: ObjectPath,
+        interface: impl Into<String>,
+        member: impl Into<String>,
+    ) -> Self {
         let mut b = Self::new(MessageType::Signal);
         b.fields.push(HeaderField::Path(path));
         b.fields.push(HeaderField::Interface(interface.into()));
@@ -158,10 +166,7 @@ impl MessageBuilder {
         b
     }
 
-    pub fn error(
-        reply_to_serial: u32,
-        error_name: impl Into<String>,
-    ) -> Self {
+    pub fn error(reply_to_serial: u32, error_name: impl Into<String>) -> Self {
         let mut b = Self::new(MessageType::Error);
         b.fields.push(HeaderField::ReplySerial(reply_to_serial));
         b.fields.push(HeaderField::ErrorName(error_name.into()));
@@ -249,13 +254,11 @@ mod tests {
     #[test]
     fn method_call_roundtrip_through_bytes() {
         let serial = SerialGenerator::new();
-        let msg = MessageBuilder::method_call(
-            ObjectPath::new("/org/freedesktop/DBus").unwrap(),
-            "Hello",
-        )
-        .interface("org.freedesktop.DBus")
-        .destination("org.freedesktop.DBus")
-        .build(serial.next());
+        let msg =
+            MessageBuilder::method_call(ObjectPath::new("/org/freedesktop/DBus").unwrap(), "Hello")
+                .interface("org.freedesktop.DBus")
+                .destination("org.freedesktop.DBus")
+                .build(serial.next());
 
         let bytes = msg.to_bytes().unwrap();
         let frame_len = MessageHeader::peek_frame_len(&bytes).unwrap().unwrap();
@@ -295,11 +298,8 @@ mod tests {
     #[test]
     fn reply_to_sets_destination_from_sender() {
         let serial = SerialGenerator::new();
-        let mut call = MessageBuilder::method_call(
-            ObjectPath::new("/").unwrap(),
-            "Ping",
-        )
-        .build(serial.next());
+        let mut call =
+            MessageBuilder::method_call(ObjectPath::new("/").unwrap(), "Ping").build(serial.next());
         call.set_sender(":1.5");
 
         let reply = reply_to(&call, None).build(serial.next());

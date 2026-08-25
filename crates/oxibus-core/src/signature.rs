@@ -1,7 +1,7 @@
 // Signature string parsing/validation.
 
 use crate::error::{CoreError, CoreResult};
-use crate::types::{Type, MAX_ARRAY_DEPTH, MAX_STRUCT_DEPTH};
+use crate::types::{MAX_ARRAY_DEPTH, MAX_STRUCT_DEPTH, Type};
 
 struct Parser<'a> {
     bytes: &'a [u8],
@@ -72,7 +72,7 @@ impl<'a> Parser<'a> {
                             return Err(CoreError::InvalidSignature(
                                 String::new(),
                                 "unterminated struct: missing ')'",
-                            ))
+                            ));
                         }
                         _ => fields.push(self.parse_one(false)?),
                     }
@@ -114,7 +114,7 @@ impl<'a> Parser<'a> {
                         return Err(CoreError::InvalidSignature(
                             String::new(),
                             "unterminated dict-entry: missing '}'",
-                        ))
+                        ));
                     }
                 }
                 self.struct_depth -= 1;
@@ -124,13 +124,13 @@ impl<'a> Parser<'a> {
                 return Err(CoreError::InvalidSignature(
                     String::new(),
                     "unexpected closing bracket",
-                ))
+                ));
             }
             other => {
                 return Err(CoreError::InvalidSignature(
                     (other as char).to_string(),
                     "unknown type code",
-                ))
+                ));
             }
         };
         Ok(ty)

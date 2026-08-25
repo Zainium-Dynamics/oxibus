@@ -129,6 +129,7 @@ impl Keyring {
         let lock_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false) // pure flock() handle, nothing is ever written here
             .mode(0o600)
             .open(self.lock_path())?;
         let rc = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX) };

@@ -22,7 +22,9 @@ impl Drop for IncompleteGuard<'_> {
 pub async fn handle_connection(bus: Arc<Bus>, stream: UnixStream) {
     let max_incomplete = bus.config.limits.max_incomplete_connections;
     if !bus.registry.try_begin_incomplete(max_incomplete) {
-        tracing::warn!("rejecting connection: {max_incomplete} incomplete connections already in flight");
+        tracing::warn!(
+            "rejecting connection: {max_incomplete} incomplete connections already in flight"
+        );
         return;
     }
     let _guard = IncompleteGuard(&bus);
@@ -37,7 +39,11 @@ pub async fn handle_connection(bus: Arc<Bus>, stream: UnixStream) {
     transport.set_max_message_size(bus.config.limits.max_message_size);
 
     let max_per_user = bus.config.limits.max_connections_per_user;
-    if bus.registry.connection_count_for_uid(transport.credentials().uid) >= max_per_user as usize {
+    if bus
+        .registry
+        .connection_count_for_uid(transport.credentials().uid)
+        >= max_per_user as usize
+    {
         tracing::warn!(
             "rejecting connection from uid {}: already at max_connections_per_user ({max_per_user})",
             transport.credentials().uid
@@ -46,7 +52,8 @@ pub async fn handle_connection(bus: Arc<Bus>, stream: UnixStream) {
     }
 
     let auth_timeout = Duration::from_millis(bus.config.limits.auth_timeout_ms);
-    let handshake_result = tokio::time::timeout(auth_timeout, run_sasl_handshake(&bus, &mut transport)).await;
+    let handshake_result =
+        tokio::time::timeout(auth_timeout, run_sasl_handshake(&bus, &mut transport)).await;
     match handshake_result {
         Ok(Ok(())) => {}
         Ok(Err(reason)) => {

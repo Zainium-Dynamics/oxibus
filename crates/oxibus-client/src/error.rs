@@ -9,10 +9,7 @@ pub enum ClientError {
     #[error("authentication failed: {0}")]
     AuthFailed(String),
     #[error("{name}: {message}")]
-    CallError {
-        name: String,
-        message: String,
-    },
+    CallError { name: String, message: String },
     #[error("connection closed")]
     Closed,
     #[error("core error: {0}")]

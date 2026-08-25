@@ -3,7 +3,7 @@
 use clap::Parser;
 use oxibus_client::{Connection, ObjectPath, Value};
 use oxibus_core::well_known;
-use oxibus_tools::{format_value, resolve_address, BusChoice};
+use oxibus_tools::{BusChoice, format_value, resolve_address};
 
 #[derive(Parser, Debug)]
 #[command(name = "oxibus-monitor", about = "Monitor an OxiBus bus")]
@@ -21,20 +21,31 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let choice = if args.system { BusChoice::System } else { BusChoice::Session };
+    let choice = if args.system {
+        BusChoice::System
+    } else {
+        BusChoice::Session
+    };
     let address = resolve_address(choice, args.address.as_deref())?;
 
     let conn = Connection::connect(&address).await?;
     conn.bus_hello().await?;
 
-    let rule_values: Vec<Value> = args.rules.iter().map(|r| Value::string(r.clone())).collect();
+    let rule_values: Vec<Value> = args
+        .rules
+        .iter()
+        .map(|r| Value::string(r.clone()))
+        .collect();
     conn.call_method(
         Some(well_known::BUS_NAME),
         ObjectPath::new(well_known::BUS_PATH).unwrap(),
         Some(well_known::MONITORING_INTERFACE),
         "BecomeMonitor",
         vec![
-            Value::Array(oxibus_core::ArrayValue::new(oxibus_core::Type::String, rule_values)),
+            Value::Array(oxibus_core::ArrayValue::new(
+                oxibus_core::Type::String,
+                rule_values,
+            )),
             Value::UInt32(0),
         ],
     )
@@ -65,7 +76,9 @@ fn print_message(msg: &oxibus_core::Message) {
         "{kind} sender={} destination={} path={} interface={} member={}",
         msg.sender().unwrap_or("(none)"),
         msg.destination().unwrap_or("(none)"),
-        msg.path().map(|p| p.as_str().to_string()).unwrap_or_default(),
+        msg.path()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_default(),
         msg.interface().unwrap_or(""),
         msg.member().unwrap_or(""),
     );

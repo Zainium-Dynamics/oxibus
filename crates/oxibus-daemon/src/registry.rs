@@ -327,7 +327,10 @@ mod tests {
         let (code, events) = reg.request_name(":1.1", "com.example.Foo", 0);
         assert_eq!(code, REQUEST_REPLY_PRIMARY_OWNER);
         assert_eq!(events.len(), 1);
-        assert_eq!(reg.get_name_owner("com.example.Foo").as_deref(), Some(":1.1"));
+        assert_eq!(
+            reg.get_name_owner("com.example.Foo").as_deref(),
+            Some(":1.1")
+        );
     }
 
     #[test]
@@ -355,8 +358,7 @@ mod tests {
     fn replace_existing_requires_allow_replacement() {
         let reg = Registry::new();
         reg.request_name(":1.1", "com.example.Foo", 0);
-        let (code, events) =
-            reg.request_name(":1.2", "com.example.Foo", FLAG_REPLACE_EXISTING);
+        let (code, events) = reg.request_name(":1.2", "com.example.Foo", FLAG_REPLACE_EXISTING);
         assert_eq!(code, REQUEST_REPLY_IN_QUEUE);
         assert!(events.is_empty());
     }
@@ -365,8 +367,7 @@ mod tests {
     fn replace_existing_succeeds_when_allowed() {
         let reg = Registry::new();
         reg.request_name(":1.1", "com.example.Foo", FLAG_ALLOW_REPLACEMENT);
-        let (code, events) =
-            reg.request_name(":1.2", "com.example.Foo", FLAG_REPLACE_EXISTING);
+        let (code, events) = reg.request_name(":1.2", "com.example.Foo", FLAG_REPLACE_EXISTING);
         assert_eq!(code, REQUEST_REPLY_PRIMARY_OWNER);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].old_owner.as_deref(), Some(":1.1"));
@@ -385,7 +386,10 @@ mod tests {
         let (code, events) = reg.release_name(":1.1", "com.example.Foo");
         assert_eq!(code, RELEASE_REPLY_RELEASED);
         assert_eq!(events[0].new_owner.as_deref(), Some(":1.2"));
-        assert_eq!(reg.get_name_owner("com.example.Foo").as_deref(), Some(":1.2"));
+        assert_eq!(
+            reg.get_name_owner("com.example.Foo").as_deref(),
+            Some(":1.2")
+        );
     }
 
     #[test]

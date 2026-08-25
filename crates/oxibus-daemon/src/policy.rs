@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use oxibus_core::header::MessageType;
 use oxibus_core::Message;
+use oxibus_core::header::MessageType;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -57,9 +57,7 @@ pub enum SendReceivePattern {
 impl SendReceivePattern {
     fn matches(&self, msg: &Message, other_party: Option<&str>) -> bool {
         match self {
-            SendReceivePattern::Destination(pat) => {
-                glob_match(pat, other_party.unwrap_or(""))
-            }
+            SendReceivePattern::Destination(pat) => glob_match(pat, other_party.unwrap_or("")),
             SendReceivePattern::Full {
                 destination,
                 interface,
@@ -67,25 +65,25 @@ impl SendReceivePattern {
                 path,
                 r#type,
             } => {
-                if let Some(d) = destination {
-                    if !glob_match(d, other_party.unwrap_or("")) {
-                        return false;
-                    }
+                if let Some(d) = destination
+                    && !glob_match(d, other_party.unwrap_or(""))
+                {
+                    return false;
                 }
-                if let Some(i) = interface {
-                    if msg.interface() != Some(i.as_str()) {
-                        return false;
-                    }
+                if let Some(i) = interface
+                    && msg.interface() != Some(i.as_str())
+                {
+                    return false;
                 }
-                if let Some(m) = member {
-                    if msg.member() != Some(m.as_str()) {
-                        return false;
-                    }
+                if let Some(m) = member
+                    && msg.member() != Some(m.as_str())
+                {
+                    return false;
                 }
-                if let Some(p) = path {
-                    if msg.path().map(|x| x.as_str()) != Some(p.as_str()) {
-                        return false;
-                    }
+                if let Some(p) = path
+                    && msg.path().map(|x| x.as_str()) != Some(p.as_str())
+                {
+                    return false;
                 }
                 if let Some(t) = r#type {
                     let matches_type = match t.as_str() {
@@ -162,7 +160,10 @@ impl Policy {
                     match toml::from_str::<PolicyFile>(&text) {
                         Ok(f) => rules.extend(f.rules),
                         Err(e) => {
-                            tracing::warn!("skipping malformed policy file {}: {e}", path.display());
+                            tracing::warn!(
+                                "skipping malformed policy file {}: {e}",
+                                path.display()
+                            );
                         }
                     }
                 } else if ext == Some("conf") {
@@ -195,10 +196,10 @@ impl Policy {
                     }
                 }
                 Context::Group => {
-                    if let Some(g) = &rule.group {
-                        if identity.group_names.iter().any(|gn| gn == g) {
-                            group_rules.push(rule);
-                        }
+                    if let Some(g) = &rule.group
+                        && identity.group_names.iter().any(|gn| gn == g)
+                    {
+                        group_rules.push(rule);
                     }
                 }
                 Context::Mandatory => mandatory_rules.push(rule),
@@ -263,10 +264,19 @@ impl Policy {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)] // "...Tag" reads clearer than dropping the suffix here
 enum XmlToken {
-    StartTag { name: String, attrs: std::collections::HashMap<String, String> },
-    EndTag { name: String },
-    SelfClosingTag { name: String, attrs: std::collections::HashMap<String, String> },
+    StartTag {
+        name: String,
+        attrs: std::collections::HashMap<String, String>,
+    },
+    EndTag {
+        name: String,
+    },
+    SelfClosingTag {
+        name: String,
+        attrs: std::collections::HashMap<String, String>,
+    },
 }
 
 fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
@@ -276,7 +286,7 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
     while let Some(&(_i, c)) = chars.peek() {
         if c == '<' {
             chars.next();
-            
+
             if let Some(&(_, '!')) = chars.peek() {
                 chars.next();
                 if let Some(&(_, '-')) = chars.peek() {
@@ -295,13 +305,17 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                         continue;
                     }
                 } else if let Some(&(_, '[')) = chars.peek() {
-                    while let Some((_, ch)) = chars.next() {
-                        if ch == '>' { break; }
+                    for (_, ch) in chars.by_ref() {
+                        if ch == '>' {
+                            break;
+                        }
                     }
                     continue;
                 } else {
-                    while let Some((_, ch)) = chars.next() {
-                        if ch == '>' { break; }
+                    for (_, ch) in chars.by_ref() {
+                        if ch == '>' {
+                            break;
+                        }
                     }
                     continue;
                 }
@@ -384,7 +398,7 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
                     };
 
                     let mut attr_val = String::new();
-                    while let Some((_, ch)) = chars.next() {
+                    for (_, ch) in chars.by_ref() {
                         if ch == quote_char {
                             break;
                         }
@@ -410,9 +424,15 @@ fn tokenize_xml(xml: &str) -> Vec<XmlToken> {
             if is_end {
                 tokens.push(XmlToken::EndTag { name: tag_name });
             } else if is_self_closing {
-                tokens.push(XmlToken::SelfClosingTag { name: tag_name, attrs });
+                tokens.push(XmlToken::SelfClosingTag {
+                    name: tag_name,
+                    attrs,
+                });
             } else {
-                tokens.push(XmlToken::StartTag { name: tag_name, attrs });
+                tokens.push(XmlToken::StartTag {
+                    name: tag_name,
+                    attrs,
+                });
             }
         } else {
             chars.next();
@@ -450,8 +470,125 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                     }
 
                     current_policy_context = Some((context, user, group));
-                } else if name == "allow" || name == "deny" {
-                    if let Some((ref ctx, ref usr, ref grp)) = current_policy_context {
+                } else if (name == "allow" || name == "deny")
+                    && let Some((ref ctx, ref usr, ref grp)) = current_policy_context
+                {
+                    let is_allow = name == "allow";
+                    let mut rule = PolicyRule {
+                        context: ctx.clone(),
+                        user: usr.clone(),
+                        group: grp.clone(),
+                        allow_own: Vec::new(),
+                        deny_own: Vec::new(),
+                        allow_send: Vec::new(),
+                        deny_send: Vec::new(),
+                        allow_receive: Vec::new(),
+                        deny_receive: Vec::new(),
+                    };
+
+                    let mut has_applied = false;
+
+                    if let Some(own) = attrs.get("own") {
+                        if is_allow {
+                            rule.allow_own.push(own.clone());
+                        } else {
+                            rule.deny_own.push(own.clone());
+                        }
+                        has_applied = true;
+                    } else if let Some(own_prefix) = attrs.get("own_prefix") {
+                        let pat = format!("{}*", own_prefix);
+                        if is_allow {
+                            rule.allow_own.push(pat);
+                        } else {
+                            rule.deny_own.push(pat);
+                        }
+                        has_applied = true;
+                    }
+
+                    let send_destination = attrs.get("send_destination");
+                    let send_destination_prefix = attrs.get("send_destination_prefix");
+                    let send_interface = attrs.get("send_interface");
+                    let send_member = attrs.get("send_member");
+                    let send_path = attrs.get("send_path");
+                    let send_type = attrs.get("send_type");
+
+                    if send_destination.is_some()
+                        || send_destination_prefix.is_some()
+                        || send_interface.is_some()
+                        || send_member.is_some()
+                        || send_path.is_some()
+                        || send_type.is_some()
+                    {
+                        let dest = send_destination
+                            .cloned()
+                            .or_else(|| send_destination_prefix.map(|p| format!("{}*", p)));
+
+                        let pattern = SendReceivePattern::Full {
+                            destination: dest,
+                            interface: send_interface.cloned(),
+                            member: send_member.cloned(),
+                            path: send_path.cloned(),
+                            r#type: send_type.cloned(),
+                        };
+
+                        if is_allow {
+                            rule.allow_send.push(pattern);
+                        } else {
+                            rule.deny_send.push(pattern);
+                        }
+                        has_applied = true;
+                    }
+
+                    let recv_sender = attrs.get("recv_sender");
+                    let recv_sender_prefix = attrs.get("recv_sender_prefix");
+                    let recv_interface = attrs.get("recv_interface");
+                    let recv_member = attrs.get("recv_member");
+                    let recv_path = attrs.get("recv_path");
+                    let recv_type = attrs.get("recv_type");
+
+                    if recv_sender.is_some()
+                        || recv_sender_prefix.is_some()
+                        || recv_interface.is_some()
+                        || recv_member.is_some()
+                        || recv_path.is_some()
+                        || recv_type.is_some()
+                    {
+                        let sender = recv_sender
+                            .cloned()
+                            .or_else(|| recv_sender_prefix.map(|p| format!("{}*", p)));
+
+                        let pattern = SendReceivePattern::Full {
+                            destination: sender,
+                            interface: recv_interface.cloned(),
+                            member: recv_member.cloned(),
+                            path: recv_path.cloned(),
+                            r#type: recv_type.cloned(),
+                        };
+
+                        if is_allow {
+                            rule.allow_receive.push(pattern);
+                        } else {
+                            rule.deny_receive.push(pattern);
+                        }
+                        has_applied = true;
+                    }
+
+                    if has_applied {
+                        rules.push(rule);
+                    }
+                }
+            }
+            XmlToken::EndTag { name } => {
+                if name == "policy" {
+                    current_policy_context = None;
+                }
+            }
+            XmlToken::SelfClosingTag { name, attrs } => {
+                if (name == "allow" || name == "deny") && current_policy_context.is_some() {
+                    let start_tok = XmlToken::StartTag { name, attrs };
+                    if let XmlToken::StartTag { name, attrs } = start_tok
+                        && let Some((ref ctx, ref usr, ref grp)) = current_policy_context
+                    {
                         let is_allow = name == "allow";
                         let mut rule = PolicyRule {
                             context: ctx.clone(),
@@ -491,11 +628,17 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                         let send_path = attrs.get("send_path");
                         let send_type = attrs.get("send_type");
 
-                        if send_destination.is_some() || send_destination_prefix.is_some() || send_interface.is_some() || send_member.is_some() || send_path.is_some() || send_type.is_some() {
-                            let dest = send_destination.cloned().or_else(|| {
-                                send_destination_prefix.map(|p| format!("{}*", p))
-                            });
-                            
+                        if send_destination.is_some()
+                            || send_destination_prefix.is_some()
+                            || send_interface.is_some()
+                            || send_member.is_some()
+                            || send_path.is_some()
+                            || send_type.is_some()
+                        {
+                            let dest = send_destination
+                                .cloned()
+                                .or_else(|| send_destination_prefix.map(|p| format!("{}*", p)));
+
                             let pattern = SendReceivePattern::Full {
                                 destination: dest,
                                 interface: send_interface.cloned(),
@@ -519,10 +662,16 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                         let recv_path = attrs.get("recv_path");
                         let recv_type = attrs.get("recv_type");
 
-                        if recv_sender.is_some() || recv_sender_prefix.is_some() || recv_interface.is_some() || recv_member.is_some() || recv_path.is_some() || recv_type.is_some() {
-                            let sender = recv_sender.cloned().or_else(|| {
-                                recv_sender_prefix.map(|p| format!("{}*", p))
-                            });
+                        if recv_sender.is_some()
+                            || recv_sender_prefix.is_some()
+                            || recv_interface.is_some()
+                            || recv_member.is_some()
+                            || recv_path.is_some()
+                            || recv_type.is_some()
+                        {
+                            let sender = recv_sender
+                                .cloned()
+                                .or_else(|| recv_sender_prefix.map(|p| format!("{}*", p)));
 
                             let pattern = SendReceivePattern::Full {
                                 destination: sender,
@@ -543,114 +692,6 @@ fn parse_xml_policy(xml_content: &str) -> Vec<PolicyRule> {
                         if has_applied {
                             rules.push(rule);
                         }
-                    }
-                }
-            }
-            XmlToken::EndTag { name } => {
-                if name == "policy" {
-                    current_policy_context = None;
-                }
-            }
-            XmlToken::SelfClosingTag { name, attrs } => {
-                if (name == "allow" || name == "deny") && current_policy_context.is_some() {
-                    let start_tok = XmlToken::StartTag { name, attrs };
-                    match start_tok {
-                        XmlToken::StartTag { name, attrs } => {
-                            if let Some((ref ctx, ref usr, ref grp)) = current_policy_context {
-                                let is_allow = name == "allow";
-                                let mut rule = PolicyRule {
-                                    context: ctx.clone(),
-                                    user: usr.clone(),
-                                    group: grp.clone(),
-                                    allow_own: Vec::new(),
-                                    deny_own: Vec::new(),
-                                    allow_send: Vec::new(),
-                                    deny_send: Vec::new(),
-                                    allow_receive: Vec::new(),
-                                    deny_receive: Vec::new(),
-                                };
-
-                                let mut has_applied = false;
-
-                                if let Some(own) = attrs.get("own") {
-                                    if is_allow {
-                                        rule.allow_own.push(own.clone());
-                                    } else {
-                                        rule.deny_own.push(own.clone());
-                                    }
-                                    has_applied = true;
-                                } else if let Some(own_prefix) = attrs.get("own_prefix") {
-                                    let pat = format!("{}*", own_prefix);
-                                    if is_allow {
-                                        rule.allow_own.push(pat);
-                                    } else {
-                                        rule.deny_own.push(pat);
-                                    }
-                                    has_applied = true;
-                                }
-
-                                let send_destination = attrs.get("send_destination");
-                                let send_destination_prefix = attrs.get("send_destination_prefix");
-                                let send_interface = attrs.get("send_interface");
-                                let send_member = attrs.get("send_member");
-                                let send_path = attrs.get("send_path");
-                                let send_type = attrs.get("send_type");
-
-                                if send_destination.is_some() || send_destination_prefix.is_some() || send_interface.is_some() || send_member.is_some() || send_path.is_some() || send_type.is_some() {
-                                    let dest = send_destination.cloned().or_else(|| {
-                                        send_destination_prefix.map(|p| format!("{}*", p))
-                                    });
-                                    
-                                    let pattern = SendReceivePattern::Full {
-                                        destination: dest,
-                                        interface: send_interface.cloned(),
-                                        member: send_member.cloned(),
-                                        path: send_path.cloned(),
-                                        r#type: send_type.cloned(),
-                                    };
-
-                                    if is_allow {
-                                        rule.allow_send.push(pattern);
-                                    } else {
-                                        rule.deny_send.push(pattern);
-                                    }
-                                    has_applied = true;
-                                }
-
-                                let recv_sender = attrs.get("recv_sender");
-                                let recv_sender_prefix = attrs.get("recv_sender_prefix");
-                                let recv_interface = attrs.get("recv_interface");
-                                let recv_member = attrs.get("recv_member");
-                                let recv_path = attrs.get("recv_path");
-                                let recv_type = attrs.get("recv_type");
-
-                                if recv_sender.is_some() || recv_sender_prefix.is_some() || recv_interface.is_some() || recv_member.is_some() || recv_path.is_some() || recv_type.is_some() {
-                                    let sender = recv_sender.cloned().or_else(|| {
-                                        recv_sender_prefix.map(|p| format!("{}*", p))
-                                    });
-
-                                    let pattern = SendReceivePattern::Full {
-                                        destination: sender,
-                                        interface: recv_interface.cloned(),
-                                        member: recv_member.cloned(),
-                                        path: recv_path.cloned(),
-                                        r#type: recv_type.cloned(),
-                                    };
-
-                                    if is_allow {
-                                        rule.allow_receive.push(pattern);
-                                    } else {
-                                        rule.deny_receive.push(pattern);
-                                    }
-                                    has_applied = true;
-                                }
-
-                                if has_applied {
-                                    rules.push(rule);
-                                }
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -759,6 +800,9 @@ allow_own = ["org.freedesktop.DBus"]
 
         assert_eq!(rules[3].context, Context::User);
         assert_eq!(rules[3].user.as_deref(), Some("root"));
-        assert_eq!(rules[3].allow_own, vec!["org.freedesktop.Notifications*".to_string()]);
+        assert_eq!(
+            rules[3].allow_own,
+            vec!["org.freedesktop.Notifications*".to_string()]
+        );
     }
 }

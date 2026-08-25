@@ -8,7 +8,10 @@ pub enum BusChoice {
     Session,
 }
 
-pub fn resolve_address(choice: BusChoice, explicit: Option<&str>) -> anyhow::Result<oxibus_core::Address> {
+pub fn resolve_address(
+    choice: BusChoice,
+    explicit: Option<&str>,
+) -> anyhow::Result<oxibus_core::Address> {
     if let Some(a) = explicit {
         return Ok(oxibus_core::Address::parse_one(a)?);
     }
@@ -56,9 +59,9 @@ pub fn parse_typed_arg(spec: &str) -> anyhow::Result<Value> {
         "uint64" => Value::UInt64(val.parse()?),
         "double" => Value::Double(val.parse()?),
         "array" => {
-            let (elem_ty, list) = val
-                .split_once(':')
-                .ok_or_else(|| anyhow::anyhow!("array needs an element type, e.g. array:string:a,b"))?;
+            let (elem_ty, list) = val.split_once(':').ok_or_else(|| {
+                anyhow::anyhow!("array needs an element type, e.g. array:string:a,b")
+            })?;
             let elements: Vec<Value> = if list.is_empty() {
                 Vec::new()
             } else {

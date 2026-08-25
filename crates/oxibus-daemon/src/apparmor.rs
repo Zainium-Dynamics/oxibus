@@ -22,11 +22,11 @@ struct AppArmorLib {
 static APPARMOR_LIB: OnceLock<Option<AppArmorLib>> = OnceLock::new();
 
 fn get_apparmor_lib() -> Option<&'static AppArmorLib> {
-    APPARMOR_LIB.get_or_init(|| {
-        unsafe {
-            let handle = libc::dlopen(b"libapparmor.so.1\0".as_ptr() as *const _, libc::RTLD_LAZY);
+    APPARMOR_LIB
+        .get_or_init(|| unsafe {
+            let handle = libc::dlopen(c"libapparmor.so.1".as_ptr(), libc::RTLD_LAZY);
             let handle = if handle.is_null() {
-                libc::dlopen(b"libapparmor.so\0".as_ptr() as *const _, libc::RTLD_LAZY)
+                libc::dlopen(c"libapparmor.so".as_ptr(), libc::RTLD_LAZY)
             } else {
                 handle
             };
@@ -35,8 +35,8 @@ fn get_apparmor_lib() -> Option<&'static AppArmorLib> {
                 return None;
             }
 
-            let aa_is_enabled_ptr = libc::dlsym(handle, b"aa_is_enabled\0".as_ptr() as *const _);
-            let aa_query_label_ptr = libc::dlsym(handle, b"aa_query_label\0".as_ptr() as *const _);
+            let aa_is_enabled_ptr = libc::dlsym(handle, c"aa_is_enabled".as_ptr());
+            let aa_query_label_ptr = libc::dlsym(handle, c"aa_query_label".as_ptr());
 
             if aa_is_enabled_ptr.is_null() || aa_query_label_ptr.is_null() {
                 warn!("AppArmor library symbols missing, mediation disabled");
@@ -44,7 +44,8 @@ fn get_apparmor_lib() -> Option<&'static AppArmorLib> {
                 return None;
             }
 
-            let aa_is_enabled: unsafe extern "C" fn() -> libc::c_int = std::mem::transmute(aa_is_enabled_ptr);
+            let aa_is_enabled: unsafe extern "C" fn() -> libc::c_int =
+                std::mem::transmute(aa_is_enabled_ptr);
             let aa_query_label: unsafe extern "C" fn(
                 mask: u32,
                 query: *mut libc::c_char,
@@ -64,8 +65,8 @@ fn get_apparmor_lib() -> Option<&'static AppArmorLib> {
                 _aa_is_enabled: aa_is_enabled,
                 aa_query_label,
             })
-        }
-    }).as_ref()
+        })
+        .as_ref()
 }
 
 pub fn is_enabled() -> bool {
@@ -120,7 +121,11 @@ pub fn build_query(
     query.extend_from_slice(bustype.as_bytes());
 
     let parts = [name, dst_con, path, interface, member];
-    let end_idx = parts.iter().rposition(|p| p.is_some()).map(|i| i + 1).unwrap_or(0);
+    let end_idx = parts
+        .iter()
+        .rposition(|p| p.is_some())
+        .map(|i| i + 1)
+        .unwrap_or(0);
 
     for part in parts.iter().take(end_idx) {
         query.push(0);
@@ -132,6 +137,7 @@ pub fn build_query(
     query
 }
 
+#[allow(clippy::too_many_arguments)] // mirrors the AppArmor D-Bus query shape 1:1
 pub fn check_permission(
     mask: u32,
     con: Option<&str>,
@@ -156,9 +162,19 @@ pub fn check_permission(
     match query_label(mask, &query) {
         Ok((allowed, _audited)) => {
             if !allowed {
-                let op = if mask == AA_DBUS_BIND { "dbus_bind" } else { "dbus_method_call" };
-                let info = if mask == AA_DBUS_BIND { "bind" } else if mask == AA_DBUS_SEND { "send" } else { "receive" };
-                
+                let op = if mask == AA_DBUS_BIND {
+                    "dbus_bind"
+                } else {
+                    "dbus_method_call"
+                };
+                let info = if mask == AA_DBUS_BIND {
+                    "bind"
+                } else if mask == AA_DBUS_SEND {
+                    "send"
+                } else {
+                    "receive"
+                };
+
                 let mut avc_msg = format!(
                     "apparmor=\"DENIED\" operation=\"{}\" info=\"{}\" bus=\"{}\"",
                     op, info, bustype

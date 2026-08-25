@@ -1,7 +1,7 @@
 // Encoding Value types to D-Bus wire format.
 
 use crate::error::{CoreError, CoreResult};
-use crate::types::{Value, MAX_ARRAY_LEN};
+use crate::types::{MAX_ARRAY_LEN, Value};
 
 // Accumulates a byte buffer while encoding Values in D-Bus wire format.
 pub struct Marshaler {
@@ -223,7 +223,8 @@ mod tests {
     fn struct_aligns_to_8() {
         let mut m = Marshaler::new(false);
         m.write_u8(1);
-        m.write_value(&Value::Struct(vec![Value::Int32(7)])).unwrap();
+        m.write_value(&Value::Struct(vec![Value::Int32(7)]))
+            .unwrap();
         assert_eq!(&m.buf[8..12], &7i32.to_le_bytes());
     }
 

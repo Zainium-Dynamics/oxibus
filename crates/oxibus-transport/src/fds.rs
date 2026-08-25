@@ -32,7 +32,7 @@ pub fn send_with_fds(fd: RawFd, buf: &[u8], out_fds: &[RawFd]) -> io::Result<usi
             let cmsg = libc::CMSG_FIRSTHDR(&msg);
             (*cmsg).cmsg_level = libc::SOL_SOCKET;
             (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-            (*cmsg).cmsg_len = libc::CMSG_LEN((out_fds.len() * std::mem::size_of::<RawFd>()) as u32) as _;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of_val(out_fds) as u32) as _;
             let data_ptr = libc::CMSG_DATA(cmsg) as *mut RawFd;
             std::ptr::copy_nonoverlapping(out_fds.as_ptr(), data_ptr, out_fds.len());
         }
@@ -77,10 +77,8 @@ pub fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<RawFd>
         unsafe {
             let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
             while !cmsg.is_null() {
-                if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS
-                {
-                    let data_len =
-                        (*cmsg).cmsg_len as usize - libc::CMSG_LEN(0) as usize;
+                if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
+                    let data_len = (*cmsg).cmsg_len as usize - libc::CMSG_LEN(0) as usize;
                     let count = data_len / std::mem::size_of::<RawFd>();
                     let data_ptr = libc::CMSG_DATA(cmsg) as *const RawFd;
                     for i in 0..count {

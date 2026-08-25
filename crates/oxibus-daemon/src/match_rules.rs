@@ -1,7 +1,7 @@
 // Match rule parsing and message filtering.
 
 use oxibus_core::header::MessageType;
-use oxibus_core::{errors, Message};
+use oxibus_core::{Message, errors};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MatchRule {
@@ -122,10 +122,10 @@ fn tokenize(s: &str) -> Result<Vec<(String, String)>, String> {
 
 impl MatchRule {
     pub fn matches(&self, msg: &Message, resolve_owner: impl Fn(&str) -> Option<String>) -> bool {
-        if let Some(t) = self.message_type {
-            if msg.message_type() != t {
-                return false;
-            }
+        if let Some(t) = self.message_type
+            && msg.message_type() != t
+        {
+            return false;
         }
         if let Some(sender) = &self.sender {
             let actual = msg.sender().unwrap_or("");
@@ -139,20 +139,20 @@ impl MatchRule {
                 return false;
             }
         }
-        if let Some(iface) = &self.interface {
-            if msg.interface() != Some(iface.as_str()) {
-                return false;
-            }
+        if let Some(iface) = &self.interface
+            && msg.interface() != Some(iface.as_str())
+        {
+            return false;
         }
-        if let Some(member) = &self.member {
-            if msg.member() != Some(member.as_str()) {
-                return false;
-            }
+        if let Some(member) = &self.member
+            && msg.member() != Some(member.as_str())
+        {
+            return false;
         }
-        if let Some(path) = &self.path {
-            if msg.path().map(|p| p.as_str()) != Some(path.as_str()) {
-                return false;
-            }
+        if let Some(path) = &self.path
+            && msg.path().map(|p| p.as_str()) != Some(path.as_str())
+        {
+            return false;
         }
         if let Some(ns) = &self.path_namespace {
             match msg.path() {
@@ -160,10 +160,10 @@ impl MatchRule {
                 _ => return false,
             }
         }
-        if let Some(dest) = &self.destination {
-            if msg.destination() != Some(dest.as_str()) {
-                return false;
-            }
+        if let Some(dest) = &self.destination
+            && msg.destination() != Some(dest.as_str())
+        {
+            return false;
         }
         for (idx, expected) in &self.args {
             if value_as_str(msg, *idx) != Some(expected.as_str()) {
@@ -191,7 +191,11 @@ impl MatchRule {
 }
 
 fn is_path_parent_or_child(p1: &str, p2: &str) -> bool {
-    p1 == p2 || p1 == "/" || p2 == "/" || p1.starts_with(&format!("{}/", p2)) || p2.starts_with(&format!("{}/", p1))
+    p1 == p2
+        || p1 == "/"
+        || p2 == "/"
+        || p1.starts_with(&format!("{}/", p2))
+        || p2.starts_with(&format!("{}/", p1))
 }
 
 fn value_as_str(msg: &Message, idx: usize) -> Option<&str> {

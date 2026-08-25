@@ -9,7 +9,9 @@ use tokio::task::JoinHandle;
 use oxibus_auth::{ClientAction, ClientAuth, Mechanism};
 use oxibus_core::header::MessageType;
 use oxibus_core::message::reply_to;
-use oxibus_core::{well_known, Address, Message, MessageBuilder, ObjectPath, SerialGenerator, Value};
+use oxibus_core::{
+    Address, Message, MessageBuilder, ObjectPath, SerialGenerator, Value, well_known,
+};
 use oxibus_transport::{Transport, Writer};
 
 use crate::error::{ClientError, ClientResult};
@@ -37,7 +39,13 @@ pub struct Connection {
 
 impl Connection {
     pub async fn connect(address: &Address) -> ClientResult<Self> {
-        Self::connect_with(address, default_mechanisms(), true, Arc::new(ObjectServer::new())).await
+        Self::connect_with(
+            address,
+            default_mechanisms(),
+            true,
+            Arc::new(ObjectServer::new()),
+        )
+        .await
     }
 
     pub async fn connect_with(
@@ -65,22 +73,17 @@ impl Connection {
         let task_unique_name = unique_name.clone();
 
         let reader_task = tokio::spawn(async move {
-            loop {
-                match transport.read_message().await {
-                    Ok(msg) => {
-                        let _ = task_raw_tx.send(msg.clone());
-                        handle_incoming(
-                            msg,
-                            &task_pending,
-                            &task_signal_tx,
-                            &task_object_server,
-                            &task_writer,
-                            &task_unique_name,
-                        )
-                        .await;
-                    }
-                    Err(_) => break,
-                }
+            while let Ok(msg) = transport.read_message().await {
+                let _ = task_raw_tx.send(msg.clone());
+                handle_incoming(
+                    msg,
+                    &task_pending,
+                    &task_signal_tx,
+                    &task_object_server,
+                    &task_writer,
+                    &task_unique_name,
+                )
+                .await;
             }
             task_pending.lock().unwrap().clear();
         });
@@ -159,7 +162,9 @@ impl Connection {
                     .unwrap_or("")
                     .to_string(),
             }),
-            _ => Err(ClientError::Protocol("unexpected reply message type".into())),
+            _ => Err(ClientError::Protocol(
+                "unexpected reply message type".into(),
+            )),
         }
     }
 
@@ -253,7 +258,7 @@ async fn handshake(
                 None => {
                     return Err(ClientError::AuthFailed(
                         "server rejected every configured SASL mechanism".into(),
-                    ))
+                    ));
                 }
             },
             ClientAction::ProtocolError(e) => return Err(ClientError::AuthFailed(e)),
@@ -280,10 +285,10 @@ async fn handle_incoming(
 ) {
     match msg.message_type() {
         MessageType::MethodReturn | MessageType::Error => {
-            if let Some(reply_serial) = msg.reply_serial() {
-                if let Some(tx) = pending.lock().unwrap().remove(&reply_serial) {
-                    let _ = tx.send(msg);
-                }
+            if let Some(reply_serial) = msg.reply_serial()
+                && let Some(tx) = pending.lock().unwrap().remove(&reply_serial)
+            {
+                let _ = tx.send(msg);
             }
         }
         MessageType::Signal => {
@@ -450,7 +455,13 @@ mod tests {
 
         let client = Connection::connect(&addr).await.unwrap();
         let reply = client
-            .call_method(None, ObjectPath::new("/echo").unwrap(), None, "Ping", vec![])
+            .call_method(
+                None,
+                ObjectPath::new("/echo").unwrap(),
+                None,
+                "Ping",
+                vec![],
+            )
             .await
             .unwrap();
         assert_eq!(reply, vec![Value::string("pong")]);

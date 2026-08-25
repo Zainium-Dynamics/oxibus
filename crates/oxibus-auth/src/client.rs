@@ -10,9 +10,7 @@ use crate::mechanism::Mechanism;
 pub enum ClientAction {
     Send(String),
     Authenticated,
-    MechanismRejected {
-        server_supported: Vec<String>,
-    },
+    MechanismRejected { server_supported: Vec<String> },
     ProtocolError(String),
 }
 

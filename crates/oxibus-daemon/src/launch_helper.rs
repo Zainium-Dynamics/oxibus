@@ -57,8 +57,9 @@ pub fn check_permissions(
     effective_uid: u32,
     resolve_uid: impl Fn(&str) -> Option<u32>,
 ) -> Result<(), HelperError> {
-    let expected_uid = resolve_uid(dbus_user)
-        .ok_or_else(|| HelperError::PermissionsInvalid(format!("cannot find user '{dbus_user}'")))?;
+    let expected_uid = resolve_uid(dbus_user).ok_or_else(|| {
+        HelperError::PermissionsInvalid(format!("cannot find user '{dbus_user}'"))
+    })?;
     if real_uid != expected_uid {
         return Err(HelperError::PermissionsInvalid(format!(
             "not invoked from user '{dbus_user}'"
@@ -70,7 +71,10 @@ pub fn check_permissions(
     Ok(())
 }
 
-pub fn find_service(registry: &ActivationRegistry, bus_name: &str) -> Result<ServiceDef, HelperError> {
+pub fn find_service(
+    registry: &ActivationRegistry,
+    bus_name: &str,
+) -> Result<ServiceDef, HelperError> {
     let def = registry
         .lookup(bus_name)
         .ok_or_else(|| HelperError::ServiceNotFound(bus_name.to_string()))?;
@@ -83,8 +87,15 @@ pub fn find_service(registry: &ActivationRegistry, bus_name: &str) -> Result<Ser
     Ok(def)
 }
 
-pub fn service_dirs(services_dir: &Path, vendor_services_dir: &Path, prefix: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![services_dir.to_path_buf(), vendor_services_dir.to_path_buf()];
+pub fn service_dirs(
+    services_dir: &Path,
+    vendor_services_dir: &Path,
+    prefix: &Path,
+) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        services_dir.to_path_buf(),
+        vendor_services_dir.to_path_buf(),
+    ];
     dirs.push(prefix.join("share/dbus-1/system-services"));
     dirs.push(prefix.join("etc/dbus-1/system-services"));
     dirs.push(prefix.join("lib/dbus-1/system-services"));
@@ -109,7 +120,10 @@ mod tests {
             parse_args(&["--help".into()]),
             Err(HelperError::InvalidArgs)
         );
-        assert_eq!(parse_args(&["com.example.Foo".into()]), Ok("com.example.Foo"));
+        assert_eq!(
+            parse_args(&["com.example.Foo".into()]),
+            Ok("com.example.Foo")
+        );
     }
 
     #[test]
@@ -145,7 +159,8 @@ mod tests {
 
     #[test]
     fn find_service_requires_configured_user() {
-        let dir = std::env::temp_dir().join(format!("oxibus-launch-helper-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("oxibus-launch-helper-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("com.example.NoUser.toml"),

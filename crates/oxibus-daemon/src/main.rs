@@ -32,7 +32,11 @@ async fn main() -> anyhow::Result<()> {
     if !args.system && !args.session {
         anyhow::bail!("must pass --system or --session");
     }
-    let kind = if args.system { BusKind::System } else { BusKind::Session };
+    let kind = if args.system {
+        BusKind::System
+    } else {
+        BusKind::Session
+    };
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -57,7 +61,13 @@ async fn main() -> anyhow::Result<()> {
     match kind {
         BusKind::System => {
             let primary = Address::UnixPath(bus.config.paths.system_socket().display().to_string());
-            let legacy = Address::UnixPath(bus.config.paths.legacy_system_socket().display().to_string());
+            let legacy = Address::UnixPath(
+                bus.config
+                    .paths
+                    .legacy_system_socket()
+                    .display()
+                    .to_string(),
+            );
             listen_addresses.push(primary);
             if legacy_differs(&bus) {
                 listen_addresses.push(legacy);
@@ -85,13 +95,13 @@ async fn main() -> anyhow::Result<()> {
         join_handles.push(spawn_accept_loop(bus.clone(), bound.listener));
     }
 
-    if kind == BusKind::System {
-        if let Err(e) = drop_privileges(&bus.config.bus.system.user) {
-            tracing::warn!(
-                "could not drop privileges to '{}': {e} — continuing as current uid",
-                bus.config.bus.system.user
-            );
-        }
+    if kind == BusKind::System
+        && let Err(e) = drop_privileges(&bus.config.bus.system.user)
+    {
+        tracing::warn!(
+            "could not drop privileges to '{}': {e} — continuing as current uid",
+            bus.config.bus.system.user
+        );
     }
 
     spawn_signal_handlers(bus.clone(), bound_socket_paths, kind);
@@ -108,8 +118,12 @@ fn drop_privileges(user: &str) -> std::io::Result<()> {
         return Ok(());
     }
 
-    let cname = std::ffi::CString::new(user)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "user name has embedded NUL"))?;
+    let cname = std::ffi::CString::new(user).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "user name has embedded NUL",
+        )
+    })?;
     let (uid, gid) = unsafe {
         let pw = libc::getpwnam(cname.as_ptr());
         if pw.is_null() {
@@ -132,10 +146,7 @@ fn drop_privileges(user: &str) -> std::io::Result<()> {
             return Err(std::io::Error::last_os_error());
         }
         if libc::getuid() != uid || libc::geteuid() != uid {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "setuid() did not take effect",
-            ));
+            return Err(std::io::Error::other("setuid() did not take effect"));
         }
     }
     tracing::info!("dropped privileges to '{user}' (uid={uid}, gid={gid})");
@@ -168,7 +179,8 @@ fn spawn_signal_handlers(bus: Arc<Bus>, socket_paths: Vec<PathBuf>, kind: BusKin
     let sighup_bus = bus.clone();
     tokio::spawn(async move {
         let bus = sighup_bus;
-        let mut sighup = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+        let mut sighup = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+        {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("cannot install SIGHUP handler: {e}");
@@ -183,20 +195,22 @@ fn spawn_signal_handlers(bus: Arc<Bus>, socket_paths: Vec<PathBuf>, kind: BusKin
     });
 
     tokio::spawn(async move {
-        let mut sigterm = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("cannot install SIGTERM handler: {e}");
-                return;
-            }
-        };
-        let mut sigint = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("cannot install SIGINT handler: {e}");
-                return;
-            }
-        };
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("cannot install SIGTERM handler: {e}");
+                    return;
+                }
+            };
+        let mut sigint =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("cannot install SIGINT handler: {e}");
+                    return;
+                }
+            };
         tokio::select! {
             _ = sigterm.recv() => tracing::info!("SIGTERM received — shutting down"),
             _ = sigint.recv() => tracing::info!("SIGINT received — shutting down"),

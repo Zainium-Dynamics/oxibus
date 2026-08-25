@@ -65,7 +65,9 @@ impl Type {
             | Type::String
             | Type::ObjectPath
             | Type::Array(_) => 4,
-            Type::Int64 | Type::UInt64 | Type::Double | Type::Struct(_) | Type::DictEntry(_, _) => 8,
+            Type::Int64 | Type::UInt64 | Type::Double | Type::Struct(_) | Type::DictEntry(_, _) => {
+                8
+            }
         }
     }
 

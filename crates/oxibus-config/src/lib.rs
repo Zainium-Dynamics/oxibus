@@ -515,16 +515,12 @@ impl GlobalConfig {
     }
 
     pub fn load_default() -> Self {
-        if let Ok(explicit) = std::env::var("OXIBUS_CONFIG") {
-            if let Ok(cfg) = Self::load_path(&explicit) {
-                return cfg;
-            }
+        if let Ok(explicit) = std::env::var("OXIBUS_CONFIG")
+            && let Ok(cfg) = Self::load_path(&explicit)
+        {
+            return cfg;
         }
-        let candidates = [
-            "/etc/oxibus/oxibus.toml",
-            "/etc/oxibus.toml",
-            "oxibus.toml",
-        ];
+        let candidates = ["/etc/oxibus/oxibus.toml", "/etc/oxibus.toml", "oxibus.toml"];
         for c in candidates {
             if let Ok(cfg) = Self::load_path(c) {
                 return cfg;
@@ -554,10 +550,9 @@ mod tests {
 
     #[test]
     fn parses_full_oxibus_toml() {
-        let text = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../oxibus.toml"),
-        )
-        .expect("root oxibus.toml must exist");
+        let text =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../oxibus.toml"))
+                .expect("root oxibus.toml must exist");
         let cfg = GlobalConfig::parse(&text).expect("root oxibus.toml must parse");
         assert_eq!(cfg.bus.system.user, "messagebus");
         assert_eq!(cfg.limits.max_message_size, 134_217_728);

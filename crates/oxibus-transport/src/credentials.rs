@@ -80,9 +80,7 @@ mod tests {
     #[test]
     fn peer_credentials_on_socketpair() {
         let mut fds = [0i32; 2];
-        let rc = unsafe {
-            libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr())
-        };
+        let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
         assert_eq!(rc, 0);
         let creds = peer_credentials(fds[0]).unwrap();
         assert_eq!(creds.uid, current_uid());

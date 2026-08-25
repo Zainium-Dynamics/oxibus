@@ -71,9 +71,12 @@ pub trait Interface: Send + Sync {
     }
 }
 
+// path -> (interface name -> handler)
+type ObjectMap = HashMap<String, HashMap<String, Arc<dyn Interface>>>;
+
 #[derive(Default)]
 pub struct ObjectServer {
-    objects: RwLock<HashMap<String, HashMap<String, Arc<dyn Interface>>>>,
+    objects: RwLock<ObjectMap>,
 }
 
 impl ObjectServer {
@@ -130,9 +133,9 @@ impl ObjectServer {
                 .ok_or_else(|| MethodError::unknown_interface(name))?,
             None => {
                 let mut candidates = ifaces.values();
-                let first = candidates.next().ok_or_else(|| {
-                    MethodError::unknown_method(member, "<no interface>")
-                })?;
+                let first = candidates
+                    .next()
+                    .ok_or_else(|| MethodError::unknown_method(member, "<no interface>"))?;
                 if candidates.next().is_some() {
                     return Err(MethodError::invalid_args(
                         "ambiguous method call: multiple interfaces implement this member, specify INTERFACE",
@@ -148,7 +151,9 @@ impl ObjectServer {
     pub fn introspect(&self, path: &str) -> String {
         let objects = self.objects.read().unwrap();
         let mut xml = String::new();
-        xml.push_str("<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n");
+        xml.push_str(
+            "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n",
+        );
         xml.push_str(" \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n");
         xml.push_str("<node>\n");
 

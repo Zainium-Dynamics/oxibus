@@ -24,11 +24,11 @@ static AUDIT_LIB: OnceLock<Option<AuditLib>> = OnceLock::new();
 static AUDIT_FD: OnceLock<libc::c_int> = OnceLock::new();
 
 fn get_audit_lib() -> Option<&'static AuditLib> {
-    AUDIT_LIB.get_or_init(|| {
-        unsafe {
-            let handle = libc::dlopen(b"libaudit.so.1\0".as_ptr() as *const _, libc::RTLD_LAZY);
+    AUDIT_LIB
+        .get_or_init(|| unsafe {
+            let handle = libc::dlopen(c"libaudit.so.1".as_ptr(), libc::RTLD_LAZY);
             let handle = if handle.is_null() {
-                libc::dlopen(b"libaudit.so\0".as_ptr() as *const _, libc::RTLD_LAZY)
+                libc::dlopen(c"libaudit.so".as_ptr(), libc::RTLD_LAZY)
             } else {
                 handle
             };
@@ -37,11 +37,15 @@ fn get_audit_lib() -> Option<&'static AuditLib> {
                 return None;
             }
 
-            let audit_open_ptr = libc::dlsym(handle, b"audit_open\0".as_ptr() as *const _);
-            let audit_log_user_avc_message_ptr = libc::dlsym(handle, b"audit_log_user_avc_message\0".as_ptr() as *const _);
-            let audit_close_ptr = libc::dlsym(handle, b"audit_close\0".as_ptr() as *const _);
+            let audit_open_ptr = libc::dlsym(handle, c"audit_open".as_ptr());
+            let audit_log_user_avc_message_ptr =
+                libc::dlsym(handle, c"audit_log_user_avc_message".as_ptr());
+            let audit_close_ptr = libc::dlsym(handle, c"audit_close".as_ptr());
 
-            if audit_open_ptr.is_null() || audit_log_user_avc_message_ptr.is_null() || audit_close_ptr.is_null() {
+            if audit_open_ptr.is_null()
+                || audit_log_user_avc_message_ptr.is_null()
+                || audit_close_ptr.is_null()
+            {
                 warn!("Audit library symbols missing, audit logging disabled");
                 libc::dlclose(handle);
                 return None;
@@ -49,12 +53,29 @@ fn get_audit_lib() -> Option<&'static AuditLib> {
 
             debug!("Audit library loaded successfully");
             Some(AuditLib {
-                audit_open: std::mem::transmute(audit_open_ptr),
-                audit_log_user_avc_message: std::mem::transmute(audit_log_user_avc_message_ptr),
-                audit_close: std::mem::transmute(audit_close_ptr),
+                audit_open: std::mem::transmute::<
+                    *mut libc::c_void,
+                    unsafe extern "C" fn() -> libc::c_int,
+                >(audit_open_ptr),
+                audit_log_user_avc_message: std::mem::transmute::<
+                    *mut libc::c_void,
+                    unsafe extern "C" fn(
+                        libc::c_int,
+                        libc::c_int,
+                        *const libc::c_char,
+                        *const libc::c_char,
+                        *const libc::c_char,
+                        *const libc::c_char,
+                        libc::uid_t,
+                    ) -> libc::c_int,
+                >(audit_log_user_avc_message_ptr),
+                audit_close: std::mem::transmute::<
+                    *mut libc::c_void,
+                    unsafe extern "C" fn(libc::c_int),
+                >(audit_close_ptr),
             })
-        }
-    }).as_ref()
+        })
+        .as_ref()
 }
 
 pub fn init() {
@@ -64,43 +85,43 @@ pub fn init() {
             debug!("Audit connection opened successfully (fd={})", fd);
             let _ = AUDIT_FD.set(fd);
         } else {
-            warn!("Failed to open audit socket: {}", std::io::Error::last_os_error());
+            warn!(
+                "Failed to open audit socket: {}",
+                std::io::Error::last_os_error()
+            );
         }
     }
 }
 
 pub fn log_avc(uid: u32, msg: &str) {
-    if let Some(lib) = get_audit_lib() {
-        if let Some(&fd) = AUDIT_FD.get() {
-            if fd >= 0 {
-                if let Ok(c_msg) = CString::new(msg) {
-                    unsafe {
-                        (lib.audit_log_user_avc_message)(
-                            fd,
-                            AUDIT_USER_AVC,
-                            c_msg.as_ptr(),
-                            std::ptr::null(),
-                            std::ptr::null(),
-                            std::ptr::null(),
-                            uid as libc::uid_t,
-                        );
-                    }
-                    return;
-                }
-            }
+    if let Some(lib) = get_audit_lib()
+        && let Some(&fd) = AUDIT_FD.get()
+        && fd >= 0
+        && let Ok(c_msg) = CString::new(msg)
+    {
+        unsafe {
+            (lib.audit_log_user_avc_message)(
+                fd,
+                AUDIT_USER_AVC,
+                c_msg.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                uid as libc::uid_t,
+            );
         }
+        return;
     }
     info!("AVC log (fallback): uid={} msg={}", uid, msg);
 }
 
 pub fn shutdown() {
-    if let Some(lib) = get_audit_lib() {
-        if let Some(&fd) = AUDIT_FD.get() {
-            if fd >= 0 {
-                unsafe {
-                    (lib.audit_close)(fd);
-                }
-            }
+    if let Some(lib) = get_audit_lib()
+        && let Some(&fd) = AUDIT_FD.get()
+        && fd >= 0
+    {
+        unsafe {
+            (lib.audit_close)(fd);
         }
     }
 }
