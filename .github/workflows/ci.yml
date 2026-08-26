@@ -1,8 +1,7 @@
 # OxiBus — GitHub Actions CI
-# Zainium Dynamics · https://zainiumdynamics.tech
 #
-# Generic pipeline: fmt → clippy → test → release build + no_std kernel.
-# Runs on every branch push and pull request. Does not create releases.
+# fmt → clippy → test. Runs on every branch push and pull request.
+# Does not build release artifacts or create releases.
 
 name: CI
 
@@ -32,7 +31,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.93"
+          toolchain: "1.97"
           components: rustfmt, clippy
 
       - name: Cache cargo registry + target
@@ -62,50 +61,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93"
-          targets: x86_64-unknown-none
-
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-            target-nostd/
-          key: cargo-build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-build-${{ runner.os }}-
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang libclang-dev llvm binutils > /dev/null
-
-      - name: Fetch dependencies
-        run: cargo fetch --locked || cargo fetch
-
-      - name: Build all tools (release)
-        run: cargo build --workspace --release
-
-
-      - name: Upload build binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: oxibus-binaries
-          path: |
-            target/release/oxibus*
-            !target/release/*.d
-          if-no-files-found: error
-          retention-days: 7
