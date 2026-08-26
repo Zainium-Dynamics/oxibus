@@ -276,7 +276,7 @@ User=nobody
         )
         .unwrap();
 
-        let reg = ActivationRegistry::load(&[dir.clone()]);
+        let reg = ActivationRegistry::load(std::slice::from_ref(&dir));
         assert!(reg.is_activatable("com.example.Foo"));
         assert!(reg.is_activatable("org.example.Bar"));
         assert!(!reg.is_activatable("com.example.Baz"));
