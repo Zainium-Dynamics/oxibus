@@ -28,7 +28,7 @@ rust-version = "1.97"
 license = "GPL-3.0-only"
 authors = ["alizain <alizain@zainiumdynamics.tech>"]
 homepage = "https://zainiumdynamics.tech"
-repository = "https://github.com/alizain/oxibus"
+repository = "https://github.com/Zainium-Dynamics/oxibus"
 categories = ["os::linux-apis", "network-programming", "asynchronous"]
 keywords = ["dbus", "ipc", "zainium", "message-bus", "async"]
 

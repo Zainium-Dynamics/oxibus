@@ -79,7 +79,7 @@ policy_dst="$ETCDIR/oxibus/policy.d/00-default.toml"
 if [[ -e "$policy_dst" && "$FORCE_POLICY" -eq 0 ]]; then
   warn "keeping existing $policy_dst (use --force-policy to replace)"
 else
-  install -D -m 0644 "$ROOT/packaging/etc/oxibus/policy.d/00-default.toml" "$policy_dst"
+  install -D -m 0644 "$ROOT/etc/oxibus/policy.d/00-default.toml" "$policy_dst"
 fi
 
 if [[ "$INSTALL_QUANTRA" -eq 1 ]]; then
