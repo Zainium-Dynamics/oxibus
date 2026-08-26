@@ -173,7 +173,7 @@ mod tests {
         )
         .unwrap();
 
-        let registry = ActivationRegistry::load(&[dir.clone()]);
+        let registry = ActivationRegistry::load(std::slice::from_ref(&dir));
 
         assert_eq!(
             find_service(&registry, "com.example.NoUser"),
