@@ -17,6 +17,12 @@
 - [x] Privilege drop (`root` to `messagebus`)
 - [x] Setuid activation helper
 
+### Systemd Integration
+- [x] `--address=systemd:` socket activation (`LISTEN_FDS`/`LISTEN_PID`, no libsystemd link)
+- [x] `sd_notify` readiness (`READY=1`) for `Type=notify` units
+- [x] `dbus-daemon` flag parity for the reference `dbus.service` invocation (`--nofork`, `--nopidfile`, `--syslog`/`--syslog-only`, `--systemd-activation`, `--print-pid`, `--introspect`, `--fork`)
+- [ ] Starting systemd *units* by name via the systemd manager D-Bus API (bus-activatable `.service` files with `SystemdService=` still only get traditional activation)
+
 ### Client & Tools
 - [x] Client library (`Connection`, `Proxy`, `ObjectServer`)
 - [x] `PropertiesChanged` signal helper (`Connection::properties_changed`)

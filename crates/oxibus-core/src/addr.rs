@@ -8,6 +8,10 @@ pub enum Address {
     UnixAbstract(String),
     UnixTmpdir(String),
     Tcp { host: String, port: u16 },
+    /// `systemd:` — listen-only pseudo-address meaning "take the already-bound
+    /// socket systemd passed us via socket activation" (LISTEN_FDS/LISTEN_PID).
+    /// Not a real connect string; a client should never see this.
+    Systemd,
 }
 
 impl Address {
@@ -19,6 +23,9 @@ impl Address {
     }
 
     pub fn parse_one(s: &str) -> CoreResult<Address> {
+        if s == "systemd:" {
+            return Ok(Address::Systemd);
+        }
         let (transport, rest) = s
             .split_once(':')
             .ok_or_else(|| CoreError::InvalidAddress(s.to_string()))?;
@@ -59,6 +66,7 @@ impl Address {
             Address::UnixAbstract(a) => format!("unix:abstract={}", escape(a)),
             Address::UnixTmpdir(d) => format!("unix:tmpdir={}", escape(d)),
             Address::Tcp { host, port } => format!("tcp:host={host},port={port}"),
+            Address::Systemd => "systemd:".to_string(),
         }
     }
 }

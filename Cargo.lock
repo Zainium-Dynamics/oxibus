@@ -511,6 +511,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hex",
+ "libc",
  "oxibus-auth",
  "oxibus-client",
  "oxibus-config",

@@ -12,6 +12,7 @@ pub mod launch_helper;
 pub mod match_rules;
 pub mod policy;
 pub mod registry;
+pub mod sd_notify;
 pub mod stats;
 
 pub use bus::{Bus, BusKind};

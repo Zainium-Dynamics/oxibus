@@ -15,12 +15,31 @@ struct Args {
     #[arg(long)]
     address: Option<String>,
 
+    /// Accepted for compatibility — this is already the default mode.
+    #[arg(long)]
+    monitor: bool,
+
+    /// Not implemented yet: print each message as raw marshaled bytes
+    /// instead of the formatted text form.
+    #[arg(long)]
+    binary: bool,
+    /// Not implemented yet: capture to a libpcap-format stream.
+    #[arg(long)]
+    pcap: bool,
+    /// Not implemented yet: annotate each message with a lock-contention
+    /// profile.
+    #[arg(long)]
+    profile: bool,
+
     rules: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    if args.binary || args.pcap || args.profile {
+        anyhow::bail!("dbus-monitor: --binary/--pcap/--profile are not implemented yet");
+    }
     let choice = if args.system {
         BusChoice::System
     } else {

@@ -18,15 +18,33 @@ struct Args {
     #[arg(long)]
     address: Option<String>,
 
+    /// Push the whole current environment instead of just the NAME[=VALUE]
+    /// arguments given on the command line.
+    #[arg(long)]
+    all: bool,
+    /// Accepted for compatibility: also try to update systemd's own
+    /// activation environment. Not implemented (no systemd manager D-Bus
+    /// integration yet) — only the bus's own environment is updated.
+    #[arg(long)]
+    systemd: bool,
+    #[arg(long)]
+    verbose: bool,
+
     vars: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    if args.vars.is_empty() {
+    if args.vars.is_empty() && !args.all {
         anyhow::bail!(
-            "usage: dbus-update-activation-environment [--system|--session] NAME[=VALUE]..."
+            "usage: dbus-update-activation-environment [--system|--session] [--all] NAME[=VALUE]..."
+        );
+    }
+    if args.systemd {
+        eprintln!(
+            "dbus-update-activation-environment: --systemd is accepted but not implemented \
+             (no systemd manager D-Bus integration yet) — only the bus's own environment is updated"
         );
     }
     let choice = if args.system {
@@ -36,20 +54,30 @@ async fn main() -> anyhow::Result<()> {
     };
     let address = resolve_address(choice, args.address.as_deref())?;
 
-    let mut entries = Vec::new();
-    for v in &args.vars {
-        let (name, value) = match v.split_once('=') {
-            Some((n, v)) => (n.to_string(), v.to_string()),
-            None => {
-                let value = std::env::var(v).unwrap_or_default();
-                (v.clone(), value)
-            }
-        };
-        entries.push(Value::DictEntry(
-            Box::new(Value::string(name)),
-            Box::new(Value::string(value)),
-        ));
+    let pairs: Vec<(String, String)> = if args.all {
+        std::env::vars().collect()
+    } else {
+        args.vars
+            .iter()
+            .map(|v| match v.split_once('=') {
+                Some((n, v)) => (n.to_string(), v.to_string()),
+                None => (v.clone(), std::env::var(v).unwrap_or_default()),
+            })
+            .collect()
+    };
+
+    if args.verbose {
+        for (name, value) in &pairs {
+            eprintln!("dbus-update-activation-environment: {name}={value}");
+        }
     }
+
+    let entries = pairs
+        .into_iter()
+        .map(|(name, value)| {
+            Value::DictEntry(Box::new(Value::string(name)), Box::new(Value::string(value)))
+        })
+        .collect();
     let env_arg = Value::Array(ArrayValue::new(
         Type::DictEntry(Box::new(Type::String), Box::new(Type::String)),
         entries,

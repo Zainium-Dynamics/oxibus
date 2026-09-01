@@ -49,3 +49,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 oxibus-auth = { workspace = true }
+libc = { workspace = true }

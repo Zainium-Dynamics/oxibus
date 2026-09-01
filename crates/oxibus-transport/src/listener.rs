@@ -49,6 +49,7 @@ pub async fn bind(addr: &Address) -> io::Result<BoundListener> {
             io::ErrorKind::Unsupported,
             "tcp: transport intentionally unsupported (Zainium is unix-socket-only, matches -Dx11_autolaunch=disabled / no remote bus)",
         )),
+        Address::Systemd => bind_systemd_activated(),
     }
 }
 
@@ -64,7 +65,73 @@ pub async fn connect(addr: &Address) -> io::Result<UnixStream> {
             io::ErrorKind::Unsupported,
             "tcp: transport intentionally unsupported",
         )),
+        Address::Systemd => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "systemd: is a listen-only address form (clients connect to the real socket path)",
+        )),
     }
+}
+
+/// Take over the socket systemd already bound for us, per the sd_listen_fds(3)
+/// protocol: it hands us the fd(s) starting at fd 3 and tells us so via
+/// LISTEN_PID/LISTEN_FDS. No libsystemd link needed — it's just env vars plus
+/// an inherited fd.
+fn bind_systemd_activated() -> io::Result<BoundListener> {
+    let pid_var = std::env::var("LISTEN_PID").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "systemd: address given but LISTEN_PID is not set — not socket-activated",
+        )
+    })?;
+    let fds_var = std::env::var("LISTEN_FDS").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "systemd: address given but LISTEN_FDS is not set — not socket-activated",
+        )
+    })?;
+    let expected_pid: i32 = pid_var
+        .parse()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "LISTEN_PID is not a pid"))?;
+    if expected_pid != std::process::id() as i32 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "LISTEN_PID does not match our pid — these fds were meant for a different process",
+        ));
+    }
+    let count: u32 = fds_var
+        .parse()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "LISTEN_FDS is not a count"))?;
+    if count == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "LISTEN_FDS=0 — systemd passed no sockets",
+        ));
+    }
+
+    const SD_LISTEN_FDS_START: i32 = 3;
+    let fd = SD_LISTEN_FDS_START;
+    unsafe {
+        // Own it going forward, and make sure services we later exec() via
+        // activation don't inherit it by accident.
+        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
+    let std_listener = unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) };
+    std_listener.set_nonblocking(true)?;
+    let listener = UnixListener::from_std(std_listener)?;
+
+    // Per sd_listen_fds(3): only the first consumer in a process should see
+    // these — clear them so anything we fork/exec later doesn't misread them
+    // as its own activation sockets.
+    unsafe {
+        std::env::remove_var("LISTEN_PID");
+        std::env::remove_var("LISTEN_FDS");
+        std::env::remove_var("LISTEN_FDNAMES");
+    }
+
+    Ok(BoundListener {
+        listener,
+        effective_address: Address::Systemd,
+    })
 }
 
 fn build_abstract_sockaddr(name: &[u8]) -> io::Result<(libc::sockaddr_un, libc::socklen_t)> {

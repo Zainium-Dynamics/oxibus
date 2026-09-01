@@ -1,6 +1,7 @@
 // dbus-daemon main entry point.
 
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use oxibus_daemon::{Bus, BusKind};
 use tokio::net::UnixListener;
 
 #[derive(Parser, Debug)]
-#[command(name = "dbus-daemon", about = "OxiBus message bus daemon")]
+#[command(name = "dbus-daemon", about = "OxiBus message bus daemon", version)]
 struct Args {
     #[arg(long, conflicts_with = "session")]
     system: bool,
@@ -22,25 +23,95 @@ struct Args {
     #[arg(long)]
     config: Option<PathBuf>,
 
+    /// Listen address, overriding the configured one. Accepts `systemd:` to
+    /// take over an already-bound socket via systemd socket activation
+    /// (LISTEN_FDS/LISTEN_PID) instead of binding one ourselves.
+    #[arg(long)]
+    address: Option<String>,
+
     #[arg(long)]
     print_address: bool,
+
+    #[arg(long)]
+    print_pid: bool,
+
+    /// Detach from the controlling terminal and background the daemon.
+    /// Binding and any --print-address/--print-pid output happen first, so
+    /// `addr=$(dbus-daemon --fork --print-address --session)` still works.
+    #[arg(long)]
+    fork: bool,
+
+    /// Accepted for compatibility — this is already the default; we only
+    /// background ourselves when --fork is given.
+    #[arg(long)]
+    nofork: bool,
+
+    /// Don't write the system-bus pid file.
+    #[arg(long)]
+    nopidfile: bool,
+
+    /// Log to syslog in addition to stderr.
+    #[arg(long)]
+    syslog: bool,
+
+    /// Log to syslog only, no stderr — what a systemd `Type=notify` unit
+    /// typically wants (journald reads the syslog socket anyway).
+    #[arg(long = "syslog-only")]
+    syslog_only: bool,
+
+    /// Accepted for compatibility — this is already the default.
+    #[arg(long)]
+    nosyslog: bool,
+
+    /// Accept systemd-style unit activation as an additional activation
+    /// source alongside our existing traditional `.service`-file activation.
+    ///
+    /// NOTE: this currently only makes us accept the flag (and the CLI/unit
+    /// combination systemd's own dbus.service uses) without erroring out —
+    /// starting a systemd *unit* by name via the systemd manager D-Bus API
+    /// is not implemented yet. Traditional activation is unaffected.
+    #[arg(long = "systemd-activation")]
+    systemd_activation: bool,
+
+    /// Print the built-in org.freedesktop.DBus introspection XML and exit.
+    #[arg(long)]
+    introspect: bool,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    if args.introspect {
+        println!("{}", oxibus_daemon::dispatch::driver_introspection_xml());
+        return Ok(());
+    }
     if !args.system && !args.session {
         anyhow::bail!("must pass --system or --session");
     }
+
+    // A single-threaded runtime keeps `--fork`'s fork()-after-bind safe (no
+    // other OS threads to leave in an inconsistent state) and matches the
+    // reference daemon's own single-threaded event-loop model.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async_main(args))
+}
+
+async fn async_main(args: Args) -> anyhow::Result<()> {
     let kind = if args.system {
         BusKind::System
     } else {
         BusKind::Session
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    init_logging(&args);
+
+    if args.systemd_activation {
+        tracing::info!(
+            "--systemd-activation: accepted; traditional .service-file activation stays active \
+             (starting systemd units by name is not implemented yet)"
+        );
+    }
 
     oxibus_daemon::audit::init();
 
@@ -57,26 +128,41 @@ async fn main() -> anyhow::Result<()> {
 
     let bus = Arc::new(bus);
     let mut listen_addresses: Vec<Address> = Vec::new();
+    let mut write_pid = false;
 
-    match kind {
-        BusKind::System => {
-            let primary = Address::UnixPath(bus.config.paths.system_socket().display().to_string());
-            let legacy = Address::UnixPath(
-                bus.config
-                    .paths
-                    .legacy_system_socket()
-                    .display()
-                    .to_string(),
-            );
-            listen_addresses.push(primary);
-            if legacy_differs(&bus) {
-                listen_addresses.push(legacy);
+    if let Some(addr_str) = &args.address {
+        listen_addresses.push(Address::parse_one(addr_str)?);
+        write_pid = kind == BusKind::System;
+    } else {
+        match kind {
+            BusKind::System => {
+                let primary =
+                    Address::UnixPath(bus.config.paths.system_socket().display().to_string());
+                let legacy = Address::UnixPath(
+                    bus.config
+                        .paths
+                        .legacy_system_socket()
+                        .display()
+                        .to_string(),
+                );
+                listen_addresses.push(primary);
+                if legacy_differs(&bus) {
+                    listen_addresses.push(legacy);
+                }
+                write_pid = true;
             }
-            write_pid_file(&bus);
+            BusKind::Session => {
+                listen_addresses.push(Address::parse_one(&bus.config.bus.session.listen)?);
+            }
         }
-        BusKind::Session => {
-            listen_addresses.push(Address::parse_one(&bus.config.bus.session.listen)?);
-        }
+    }
+    if write_pid && !args.nopidfile {
+        write_pid_file(&bus);
+    }
+
+    let pid = unsafe { libc::getpid() };
+    if args.print_pid {
+        println!("{pid}");
     }
 
     let mut join_handles = Vec::new();
@@ -95,6 +181,14 @@ async fn main() -> anyhow::Result<()> {
         join_handles.push(spawn_accept_loop(bus.clone(), bound.listener));
     }
 
+    if args.fork {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        if let Err(e) = daemonize() {
+            tracing::warn!("--fork: could not daemonize: {e} — continuing in foreground");
+        }
+    }
+
     if kind == BusKind::System
         && let Err(e) = drop_privileges(&bus.config.bus.system.user)
     {
@@ -106,10 +200,110 @@ async fn main() -> anyhow::Result<()> {
 
     spawn_signal_handlers(bus.clone(), bound_socket_paths, kind);
 
+    // Tell systemd (Type=notify units, e.g. the reference dbus.service) that
+    // we're up and accepting connections. A silent no-op when NOTIFY_SOCKET
+    // isn't set, i.e. whenever we're not running under systemd at all.
+    oxibus_daemon::sd_notify::notify_ready();
+
     for h in join_handles {
         let _ = h.await;
     }
     Ok(())
+}
+
+/// Classic double-fork daemonization. Runs *after* sockets are bound and any
+/// --print-address/--print-pid output is flushed, so scripts that do
+/// `addr=$(dbus-daemon --fork --print-address ...)` still capture the
+/// address before we sever our stdio from that pipe.
+fn daemonize() -> std::io::Result<()> {
+    unsafe {
+        match libc::fork() {
+            -1 => return Err(std::io::Error::last_os_error()),
+            0 => {}
+            _ => std::process::exit(0),
+        }
+        if libc::setsid() < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        match libc::fork() {
+            -1 => return Err(std::io::Error::last_os_error()),
+            0 => {}
+            _ => std::process::exit(0),
+        }
+    }
+    let _ = std::env::set_current_dir("/");
+    redirect_stdio_to_devnull();
+    Ok(())
+}
+
+fn redirect_stdio_to_devnull() {
+    if let Ok(devnull) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/null")
+    {
+        let fd = devnull.as_raw_fd();
+        unsafe {
+            libc::dup2(fd, 0);
+            libc::dup2(fd, 1);
+            libc::dup2(fd, 2);
+        }
+    }
+}
+
+/// A writer that forwards each formatted log line to syslog via libc's
+/// `syslog(3)`, so `--syslog`/`--syslog-only` work without linking a
+/// separate syslog crate.
+#[derive(Clone, Copy)]
+struct SyslogWriter;
+
+impl std::io::Write for SyslogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let line = String::from_utf8_lossy(buf);
+        let line = line.trim_end_matches('\n');
+        if !line.is_empty() {
+            let sanitized = line.replace('\0', "");
+            if let Ok(cstr) = std::ffi::CString::new(sanitized) {
+                unsafe {
+                    libc::syslog(libc::LOG_INFO, c"%s".as_ptr(), cstr.as_ptr());
+                }
+            }
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn init_logging(args: &Args) {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let want_syslog = args.syslog || args.syslog_only;
+    if want_syslog {
+        let ident = c"dbus-daemon";
+        unsafe {
+            libc::openlog(ident.as_ptr(), libc::LOG_PID, libc::LOG_DAEMON);
+        }
+    }
+
+    let filter = tracing_subscriber::EnvFilter::from_default_env();
+    let stderr_layer =
+        (!args.syslog_only).then(|| tracing_subscriber::fmt::layer().with_target(false));
+    let syslog_layer = want_syslog.then(|| {
+        tracing_subscriber::fmt::layer()
+            .with_writer(|| SyslogWriter)
+            .with_ansi(false)
+            .without_time()
+            .with_target(false)
+    });
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(stderr_layer)
+        .with(syslog_layer)
+        .init();
 }
 
 fn drop_privileges(user: &str) -> std::io::Result<()> {

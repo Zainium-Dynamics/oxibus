@@ -538,7 +538,7 @@ fn driver_err(name: &str, message: impl Into<String>) -> driver::DriverOutcome {
     }
 }
 
-fn driver_introspection_xml() -> String {
+pub fn driver_introspection_xml() -> String {
     format!(
         r#"<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">

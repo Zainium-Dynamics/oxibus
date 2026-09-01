@@ -11,8 +11,13 @@ fn main() {
         println!("Usage: dbus-cleanup-sockets [DIRECTORY]");
         return;
     }
+    if args.iter().any(|a| a == "--version") {
+        println!("dbus-cleanup-sockets (oxibus) {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     let dir = args
-        .first()
+        .iter()
+        .find(|a| !a.starts_with('-'))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
 
