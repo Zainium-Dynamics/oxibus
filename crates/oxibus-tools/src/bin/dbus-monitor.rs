@@ -6,7 +6,7 @@ use oxibus_core::well_known;
 use oxibus_tools::{BusChoice, format_value, resolve_address};
 
 #[derive(Parser, Debug)]
-#[command(name = "oxibus-monitor", about = "Monitor an OxiBus bus")]
+#[command(name = "dbus-monitor", about = "Monitor an OxiBus bus")]
 struct Args {
     #[arg(long)]
     system: bool,
@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
 
-    eprintln!("oxibus-monitor: watching bus traffic (Ctrl-C to stop)");
+    eprintln!("dbus-monitor: watching bus traffic (Ctrl-C to stop)");
     let mut rx = conn.subscribe_all_messages();
     loop {
         match rx.recv().await {

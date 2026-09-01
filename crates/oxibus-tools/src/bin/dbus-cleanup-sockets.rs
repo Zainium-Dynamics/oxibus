@@ -8,7 +8,7 @@ use std::path::PathBuf;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("Usage: oxibus-cleanup-sockets [DIRECTORY]");
+        println!("Usage: dbus-cleanup-sockets [DIRECTORY]");
         return;
     }
     let dir = args
@@ -19,7 +19,7 @@ fn main() {
     let entries = match fs::read_dir(&dir) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("oxibus-cleanup-sockets: cannot read {}: {e}", dir.display());
+            eprintln!("dbus-cleanup-sockets: cannot read {}: {e}", dir.display());
             std::process::exit(1);
         }
     };
@@ -43,7 +43,7 @@ fn main() {
         }
     }
     println!(
-        "oxibus-cleanup-sockets: removed {removed} stale socket(s) from {}",
+        "dbus-cleanup-sockets: removed {removed} stale socket(s) from {}",
         dir.display()
     );
 }

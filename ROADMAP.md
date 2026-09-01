@@ -21,4 +21,4 @@
 - [x] Client library (`Connection`, `Proxy`, `ObjectServer`)
 - [x] `PropertiesChanged` signal helper (`Connection::properties_changed`)
 - [x] `ObjectServer` auto-lists `list_properties()` in introspection XML
-- [x] CLI binaries (`oxibus-daemon`, `oxibus-send`, `oxibus-monitor`, `oxibus-launch`, `oxibus-uuidgen`, `oxibus-cleanup-sockets`, `oxibus-update-activation-environment`)
+- [x] CLI binaries (`dbus-daemon`, `dbus-send`, `dbus-monitor`, `dbus-launch`, `dbus-uuidgen`, `dbus-cleanup-sockets`, `dbus-run-session`, `dbus-update-activation-environment`)

@@ -3,7 +3,7 @@
 
 name        = "oxibus"
 description = "OxiBus system message bus daemon"
-command     = "/overlayer/syshub/bin/oxibus-daemon"
+command     = "/overlayer/syshub/bin/dbus-daemon"
 args        = ["--system"]
 
 restart              = "always"

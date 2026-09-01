@@ -215,7 +215,7 @@ fn default_machine_id_file() -> String {
     "/var/lib/oxibus/machine-id".into()
 }
 fn default_launch_helper() -> String {
-    "/libexec/oxibus-daemon-launch-helper".into()
+    "/libexec/dbus-daemon-launch-helper".into()
 }
 fn default_legacy_system_socket() -> String {
     "/run/dbus/system_bus_socket".into()
@@ -471,7 +471,7 @@ fn default_log_level() -> String {
     "info".into()
 }
 fn default_log_ident() -> String {
-    "oxibus-daemon".into()
+    "dbus-daemon".into()
 }
 fn default_log_target() -> String {
     "stderr".into()

@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
                 args.next();
             }
             "--help" | "-h" => {
-                println!("Usage: oxibus-launch [--exit-with-session] [-- COMMAND [ARGS...]]");
+                println!("Usage: dbus-launch [--exit-with-session] [-- COMMAND [ARGS...]]");
                 return Ok(());
             }
             "--" => {
@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let daemon_bin = std::env::var("OXIBUS_DAEMON_BIN").unwrap_or_else(|_| "oxibus-daemon".into());
+    let daemon_bin = std::env::var("OXIBUS_DAEMON_BIN").unwrap_or_else(|_| "dbus-daemon".into());
     let mut child = Command::new(&daemon_bin)
         .args(["--session", "--print-address"])
         .stdout(Stdio::piped())
@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     reader.read_line(&mut address)?;
     let address = address.trim().to_string();
     if address.is_empty() {
-        anyhow::bail!("oxibus-daemon did not print a bus address");
+        anyhow::bail!("dbus-daemon did not print a bus address");
     }
 
     let pid = child.id();

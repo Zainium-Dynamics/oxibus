@@ -51,8 +51,8 @@ install -d \
   "$STATEDIR"
 
 log "installing binaries → $BINDIR"
-for bin in oxibus-daemon oxibus-send oxibus-monitor oxibus-launch oxibus-uuidgen \
-           oxibus-cleanup-sockets oxibus-run-session oxibus-update-activation-environment; do
+for bin in dbus-daemon dbus-send dbus-monitor dbus-launch dbus-uuidgen \
+           dbus-cleanup-sockets dbus-run-session dbus-update-activation-environment; do
   if [[ -f "$rel/$bin" ]]; then
     install -D -m 0755 "$rel/$bin" "$BINDIR/$bin"
   else
@@ -60,11 +60,11 @@ for bin in oxibus-daemon oxibus-send oxibus-monitor oxibus-launch oxibus-uuidgen
   fi
 done
 
-if [[ -f "$rel/oxibus-daemon-launch-helper" ]]; then
-  helper_dst="${DESTROOT}${LAUNCH_HELPER_PATH:-/libexec/oxibus-daemon-launch-helper}"
-  install -D -m 0755 "$rel/oxibus-daemon-launch-helper" "$helper_dst"
+if [[ -f "$rel/dbus-daemon-launch-helper" ]]; then
+  helper_dst="${DESTROOT}${LAUNCH_HELPER_PATH:-/libexec/dbus-daemon-launch-helper}"
+  install -D -m 0755 "$rel/dbus-daemon-launch-helper" "$helper_dst"
 else
-  warn "missing $rel/oxibus-daemon-launch-helper"
+  warn "missing $rel/dbus-daemon-launch-helper"
 fi
 
 log "installing config → $ETCDIR/oxibus"
@@ -98,5 +98,5 @@ if [[ "$INSTALL_QUANTRA" -eq 1 ]]; then
 fi
 echo ""
 echo "Activate setuid launch helper:"
-echo "  sudo chown root:messagebus ${helper_dst:-${DESTROOT}/libexec/oxibus-daemon-launch-helper}"
-echo "  sudo chmod 4750 ${helper_dst:-${DESTROOT}/libexec/oxibus-daemon-launch-helper}"
+echo "  sudo chown root:messagebus ${helper_dst:-${DESTROOT}/libexec/dbus-daemon-launch-helper}"
+echo "  sudo chmod 4750 ${helper_dst:-${DESTROOT}/libexec/dbus-daemon-launch-helper}"

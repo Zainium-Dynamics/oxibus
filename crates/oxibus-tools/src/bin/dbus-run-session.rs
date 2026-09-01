@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
                 break;
             }
             "--help" | "-h" => {
-                println!("Usage: oxibus-run-session -- COMMAND [ARGS...]");
+                println!("Usage: dbus-run-session -- COMMAND [ARGS...]");
                 return Ok(());
             }
             _ => {
@@ -24,10 +24,10 @@ fn main() -> anyhow::Result<()> {
         }
     }
     if command.is_empty() {
-        anyhow::bail!("usage: oxibus-run-session -- COMMAND [ARGS...]");
+        anyhow::bail!("usage: dbus-run-session -- COMMAND [ARGS...]");
     }
 
-    let daemon_bin = std::env::var("OXIBUS_DAEMON_BIN").unwrap_or_else(|_| "oxibus-daemon".into());
+    let daemon_bin = std::env::var("OXIBUS_DAEMON_BIN").unwrap_or_else(|_| "dbus-daemon".into());
     let mut daemon = Command::new(&daemon_bin)
         .args(["--session", "--print-address"])
         .stdout(Stdio::piped())
@@ -41,11 +41,16 @@ fn main() -> anyhow::Result<()> {
     let address = address.trim().to_string();
     if address.is_empty() {
         let _ = daemon.kill();
-        anyhow::bail!("oxibus-daemon did not print a bus address");
+        anyhow::bail!("dbus-daemon did not print a bus address");
     }
 
     let status = Command::new(&command[0])
         .args(&command[1..])
+        // Standard D-Bus env var — every client that uses libdbus/zbus/GDBus
+        // (cosmic-session included) reads exactly this name, not a
+        // Zainium-specific one. OXIBUS_SESSION_BUS_ADDRESS is kept alongside
+        // for anything in our own stack that already looks for it.
+        .env("DBUS_SESSION_BUS_ADDRESS", &address)
         .env("OXIBUS_SESSION_BUS_ADDRESS", &address)
         .status();
 

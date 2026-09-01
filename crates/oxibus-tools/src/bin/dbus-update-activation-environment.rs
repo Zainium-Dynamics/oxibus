@@ -7,7 +7,7 @@ use oxibus_tools::{BusChoice, resolve_address};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "oxibus-update-activation-environment",
+    name = "dbus-update-activation-environment",
     about = "Update the OxiBus activation environment"
 )]
 struct Args {
@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.vars.is_empty() {
         anyhow::bail!(
-            "usage: oxibus-update-activation-environment [--system|--session] NAME[=VALUE]..."
+            "usage: dbus-update-activation-environment [--system|--session] NAME[=VALUE]..."
         );
     }
     let choice = if args.system {

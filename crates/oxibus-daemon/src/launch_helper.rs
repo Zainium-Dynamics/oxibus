@@ -6,7 +6,7 @@ use crate::activation::{ActivationRegistry, ServiceDef};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum HelperError {
-    #[error("usage: oxibus-daemon-launch-helper SERVICE.NAME.TO.ACTIVATE")]
+    #[error("usage: dbus-daemon-launch-helper SERVICE.NAME.TO.ACTIVATE")]
     InvalidArgs,
     #[error("bus name '{0}' is not a valid bus name")]
     InvalidBusName(String),

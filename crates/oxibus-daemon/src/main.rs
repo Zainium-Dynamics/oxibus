@@ -1,4 +1,4 @@
-// oxibus-daemon main entry point.
+// dbus-daemon main entry point.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use oxibus_daemon::{Bus, BusKind};
 use tokio::net::UnixListener;
 
 #[derive(Parser, Debug)]
-#[command(name = "oxibus-daemon", about = "OxiBus message bus daemon")]
+#[command(name = "dbus-daemon", about = "OxiBus message bus daemon")]
 struct Args {
     #[arg(long, conflicts_with = "session")]
     system: bool,

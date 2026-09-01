@@ -35,13 +35,13 @@ fn main() {
                 filename = Some(f.to_string());
             }
         } else if a == "--help" {
-            println!("Usage: oxibus-uuidgen [--ensure[=FILENAME]] [--get[=FILENAME]]");
+            println!("Usage: dbus-uuidgen [--ensure[=FILENAME]] [--get[=FILENAME]]");
             return;
         } else if a == "--version" {
             println!("OxiBus UUID Generator 0.1.0");
             return;
         } else {
-            eprintln!("oxibus-uuidgen: unknown option '{a}'");
+            eprintln!("dbus-uuidgen: unknown option '{a}'");
             std::process::exit(1);
         }
     }
@@ -70,7 +70,7 @@ fn main() {
             let _ = std::fs::create_dir_all(parent);
         }
         if let Err(e) = std::fs::write(&path, &uuid) {
-            eprintln!("oxibus-uuidgen: could not write {}: {e}", path.display());
+            eprintln!("dbus-uuidgen: could not write {}: {e}", path.display());
             std::process::exit(1);
         }
         return;

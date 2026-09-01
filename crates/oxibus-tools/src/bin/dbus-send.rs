@@ -5,7 +5,7 @@ use oxibus_client::{Connection, ObjectPath};
 use oxibus_tools::{BusChoice, format_value, parse_typed_arg, resolve_address};
 
 #[derive(Parser, Debug)]
-#[command(name = "oxibus-send", about = "Send a message to an OxiBus bus")]
+#[command(name = "dbus-send", about = "Send a message to an OxiBus bus")]
 struct Args {
     #[arg(long)]
     system: bool,

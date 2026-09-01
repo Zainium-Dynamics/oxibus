@@ -14,7 +14,7 @@ fn main() {
         Ok(n) => n.to_string(),
         Err(_) => {
             eprintln!(
-                "oxibus-daemon-launch-helper: usage: oxibus-daemon-launch-helper SERVICE.NAME.TO.ACTIVATE"
+                "dbus-daemon-launch-helper: usage: dbus-daemon-launch-helper SERVICE.NAME.TO.ACTIVATE"
             );
             std::process::exit(
                 if args.iter().any(|a| a == "--help" || a == "-h" || a == "-?") {
@@ -27,7 +27,7 @@ fn main() {
     };
 
     if let Err(e) = run(&name) {
-        eprintln!("oxibus-daemon-launch-helper: {e}");
+        eprintln!("dbus-daemon-launch-helper: {e}");
         std::process::exit(e.exit_code());
     }
 }

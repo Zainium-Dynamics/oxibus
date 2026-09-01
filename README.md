@@ -11,19 +11,19 @@ cargo build --release --workspace
 
 Start the daemon in session mode:
 ```bash
-./target/release/oxibus-daemon --session --print-address
+./target/release/dbus-daemon --session --print-address
 export DBUS_SESSION_BUS_ADDRESS="unix:path=/tmp/oxibus_session_socket,guid=4db4a87e35b7194f"
 ```
 
-Send a message using `oxibus-send`:
+Send a message using `dbus-send`:
 ```bash
-./target/release/oxibus-send --session --print-reply \
+./target/release/dbus-send --session --print-reply \
     --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames
 ```
 
 Monitor incoming traffic:
 ```bash
-./target/release/oxibus-monitor --session
+./target/release/dbus-monitor --session
 ```
 
 ## Architecture

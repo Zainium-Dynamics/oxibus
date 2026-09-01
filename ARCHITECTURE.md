@@ -61,4 +61,4 @@ oxibus-tools    (CLI administration suite)
 ## System Integration
 
 - System daemon configuration provided via `quantra/oxibus.toml`.
-- Setuid boundary managed by `oxibus-daemon-launch-helper`.
+- Setuid boundary managed by `dbus-daemon-launch-helper`.

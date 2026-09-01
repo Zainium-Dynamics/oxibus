@@ -1,6 +1,6 @@
 [package]
 name = "oxibus-tools"
-description = "OxiBus CLI tools: oxibus-send, oxibus-monitor, oxibus-launch, ..."
+description = "OxiBus CLI tools: dbus-send, dbus-monitor, dbus-launch, ..."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,32 +10,32 @@ homepage.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "oxibus-send"
-path = "src/bin/oxibus-send.rs"
+name = "dbus-send"
+path = "src/bin/dbus-send.rs"
 
 [[bin]]
-name = "oxibus-monitor"
-path = "src/bin/oxibus-monitor.rs"
+name = "dbus-monitor"
+path = "src/bin/dbus-monitor.rs"
 
 [[bin]]
-name = "oxibus-launch"
-path = "src/bin/oxibus-launch.rs"
+name = "dbus-launch"
+path = "src/bin/dbus-launch.rs"
 
 [[bin]]
-name = "oxibus-uuidgen"
-path = "src/bin/oxibus-uuidgen.rs"
+name = "dbus-uuidgen"
+path = "src/bin/dbus-uuidgen.rs"
 
 [[bin]]
-name = "oxibus-cleanup-sockets"
-path = "src/bin/oxibus-cleanup-sockets.rs"
+name = "dbus-cleanup-sockets"
+path = "src/bin/dbus-cleanup-sockets.rs"
 
 [[bin]]
-name = "oxibus-run-session"
-path = "src/bin/oxibus-run-session.rs"
+name = "dbus-run-session"
+path = "src/bin/dbus-run-session.rs"
 
 [[bin]]
-name = "oxibus-update-activation-environment"
-path = "src/bin/oxibus-update-activation-environment.rs"
+name = "dbus-update-activation-environment"
+path = "src/bin/dbus-update-activation-environment.rs"
 
 [dependencies]
 oxibus-core = { workspace = true }

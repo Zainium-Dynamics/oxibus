@@ -10,12 +10,12 @@ homepage.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "oxibus-daemon"
+name = "dbus-daemon"
 path = "src/main.rs"
 
 [[bin]]
-name = "oxibus-daemon-launch-helper"
-path = "src/bin/oxibus-daemon-launch-helper.rs"
+name = "dbus-daemon-launch-helper"
+path = "src/bin/dbus-daemon-launch-helper.rs"
 
 [dependencies]
 oxibus-core = { workspace = true }

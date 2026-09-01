@@ -10,9 +10,9 @@ echo "    config: oxibus.toml"
 cargo build --release --workspace
 
 echo "==> artifacts"
-ls -la target/release/oxibus-daemon target/release/oxibus-send \
-  target/release/oxibus-monitor target/release/oxibus-launch \
-  target/release/oxibus-uuidgen target/release/oxibus-cleanup-sockets \
+ls -la target/release/dbus-daemon target/release/dbus-send \
+  target/release/dbus-monitor target/release/dbus-launch \
+  target/release/dbus-uuidgen target/release/dbus-cleanup-sockets \
   2>/dev/null || true
 
 echo "Done."
