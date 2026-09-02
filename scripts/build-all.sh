@@ -13,6 +13,7 @@ echo "==> artifacts"
 ls -la target/release/dbus-daemon target/release/dbus-send \
   target/release/dbus-monitor target/release/dbus-launch \
   target/release/dbus-uuidgen target/release/dbus-cleanup-sockets \
+  target/release/libdbus_1.so \
   2>/dev/null || true
 
 echo "Done."

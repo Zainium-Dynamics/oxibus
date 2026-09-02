@@ -42,6 +42,12 @@ Monitor incoming traffic:
 
 Each accepts the reference tool's flags (see `--help`; a few niche ones like `dbus-monitor --pcap` are stubbed and error out rather than silently doing nothing). `dbus-daemon` additionally understands `--address=systemd:` (socket activation via `LISTEN_FDS`/`LISTEN_PID`) and sends `sd_notify` readiness, so a `Type=notify` systemd unit works unmodified.
 
+## `libdbus-1.so.3` compat
+
+`oxibus-libdbus-compat` builds a `libdbus-1.so.3`-compatible shared library (`target/release/libdbus_1.so`, installed as `libdbus-1.so.3`) so programs that dynamically link the reference `libdbus` — instead of talking to a bus over the socket directly — work against OxiBus without recompiling. It's a thin C ABI bridge on top of `oxibus-client`, not a from-scratch reimplementation of libdbus's internals.
+
+Current scope (MVP): opening a bus connection, building a method call or signal, sending it and reading the reply back via the basic-type iterator API, and `DBusError` handling. Not yet covered: the printf-style variadic `dbus_set_error` (use `dbus_set_error_const`, or any format string with no `%` specifiers, which works either way), non-blocking `dbus_connection_send` for method calls, message filters/`dbus_connection_pop_message`, and array/struct/dict/variant container types in the iterator API — calls into these link fine but return a clear failure rather than silently misbehaving.
+
 ## Architecture
 
 OxiBus consists of modular crates:
@@ -53,6 +59,7 @@ OxiBus consists of modular crates:
 - **`oxibus-daemon`**: Message router, name registry, security policies, and service activation.
 - **`oxibus-config`**: Shared TOML configuration loader.
 - **`oxibus-tools`**: D-Bus CLI utilities.
+- **`oxibus-libdbus-compat`**: `libdbus-1.so.3`-compatible C ABI shim (see above).
 
 Policy and `.service`-file activation search both OxiBus's own config paths and the standard `dbus-1` locations (`/etc/dbus-1/system.d`, `/usr/share/dbus-1/services`, `/usr/share/dbus-1/system-services`, ...), so files installed by other packages for the reference daemon are picked up as-is.
 

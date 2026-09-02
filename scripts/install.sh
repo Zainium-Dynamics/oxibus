@@ -28,6 +28,7 @@ for arg in "$@"; do
 done
 
 BINDIR="${BINDIR:-${DESTROOT}/bin}"
+LIBDIR="${LIBDIR:-${DESTROOT}/lib}"
 ETCDIR="${ETCDIR:-${DESTROOT}/etc}"
 STATEDIR="${STATEDIR:-${DESTROOT}/var/lib/oxibus}"
 QUANTRA_SERVICES_DIR="${QUANTRA_SERVICES_DIR:-${DESTROOT}/engine/services}"
@@ -67,6 +68,16 @@ else
   warn "missing $rel/dbus-daemon-launch-helper"
 fi
 
+log "installing libdbus-1.so.3 compat shim → $LIBDIR"
+if [[ -f "$rel/libdbus_1.so" ]]; then
+  libdbus_dst="$LIBDIR/libdbus-1.so.3.0.0"
+  install -D -m 0755 "$rel/libdbus_1.so" "$libdbus_dst"
+  ln -sf "$(basename "$libdbus_dst")" "$LIBDIR/libdbus-1.so.3"
+  ln -sf "libdbus-1.so.3" "$LIBDIR/libdbus-1.so"
+else
+  warn "missing $rel/libdbus_1.so"
+fi
+
 log "installing config → $ETCDIR/oxibus"
 cfg_dst="$ETCDIR/oxibus/oxibus.toml"
 if [[ -e "$cfg_dst" && "$FORCE_CONFIG" -eq 0 ]]; then
@@ -90,6 +101,7 @@ fi
 log "done"
 echo "  DESTROOT: ${DESTROOT}"
 echo "  bins:     $BINDIR"
+echo "  libs:     $LIBDIR/libdbus-1.so.3"
 echo "  config:   $ETCDIR/oxibus/oxibus.toml"
 echo "  policy:   $ETCDIR/oxibus/policy.d/"
 echo "  services: $ETCDIR/oxibus/services/"

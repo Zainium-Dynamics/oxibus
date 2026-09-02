@@ -23,6 +23,15 @@
 - [x] `dbus-daemon` flag parity for the reference `dbus.service` invocation (`--nofork`, `--nopidfile`, `--syslog`/`--syslog-only`, `--systemd-activation`, `--print-pid`, `--introspect`, `--fork`)
 - [ ] Starting systemd *units* by name via the systemd manager D-Bus API (bus-activatable `.service` files with `SystemdService=` still only get traditional activation)
 
+### `libdbus-1.so.3` Compatibility
+- [x] `oxibus-libdbus-compat`: C ABI shim producing `libdbus-1.so.3`, backed by `oxibus-client`
+- [x] Connection lifecycle (`dbus_bus_get`, ref/unref, `dbus_bus_request_name`, `dbus_bus_add_match`)
+- [x] Method calls and signals: build via `dbus_message_new_*` + the basic-type iterator API, `dbus_connection_send_with_reply_and_block`
+- [x] `DBusError` (ABI-correct struct layout, `dbus_error_*`, `dbus_set_error_const`)
+- [ ] Variadic `dbus_set_error`/`dbus_message_append_args`/`dbus_message_get_args` (stable Rust can't define C-variadic functions; needs proper version-script-based symbol export, not just a linked-in C shim)
+- [ ] Non-blocking `dbus_connection_send` for method calls + `dbus_connection_pop_message`/filters (needs a pending-call registry)
+- [ ] Container types (array/struct/dict/variant) in the iterator API
+
 ### Client & Tools
 - [x] Client library (`Connection`, `Proxy`, `ObjectServer`)
 - [x] `PropertiesChanged` signal helper (`Connection::properties_changed`)

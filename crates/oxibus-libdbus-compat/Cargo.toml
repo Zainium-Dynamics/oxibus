@@ -1,0 +1,24 @@
+[package]
+name = "oxibus-libdbus-compat"
+description = "C ABI-compatible libdbus-1.so.3 shim, backed by oxibus-client — lets unmodified libdbus consumers talk to OxiBus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lib]
+# Cargo library target names can't contain hyphens; the build produces
+# `libdbus_1.so`, which install.sh renames/symlinks to the real SONAME
+# (`libdbus-1.so.3`) at install time.
+name = "dbus_1"
+crate-type = ["cdylib"]
+
+[dependencies]
+oxibus-core = { workspace = true }
+oxibus-client = { workspace = true }
+oxibus-config = { workspace = true }
+tokio = { workspace = true }
+libc = { workspace = true }

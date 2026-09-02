@@ -505,6 +505,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxibus-libdbus-compat"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "oxibus-client",
+ "oxibus-config",
+ "oxibus-core",
+ "tokio",
+]
+
+[[package]]
 name = "oxibus-tools"
 version = "0.1.0"
 dependencies = [

@@ -10,6 +10,7 @@ members = [
     "crates/oxibus-client",
     "crates/oxibus-daemon",
     "crates/oxibus-tools",
+    "crates/oxibus-libdbus-compat",
 ]
 default-members = [
     "crates/oxibus-config",
@@ -19,6 +20,7 @@ default-members = [
     "crates/oxibus-client",
     "crates/oxibus-daemon",
     "crates/oxibus-tools",
+    "crates/oxibus-libdbus-compat",
 ]
 
 [workspace.package]
